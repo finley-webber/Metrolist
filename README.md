@@ -99,6 +99,18 @@ Thank you very much for helping to make Metrolist accessible to many people worl
 
 Use other music scrobbler apps, I recommend [Pano Scrobbler](https://play.google.com/store/apps/details?id=com.arn.scrobble).
 
+### Q: How do I import my data from InnerTune?
+
+Metrolist supports importing backups from InnerTune! For detailed step-by-step instructions, see:
+- **[InnerTune Backup Import Guide](docs/INNERTUNE_BACKUP_IMPORT.md)** - Complete documentation of the import process
+- **[Backup & Restore Flowchart](docs/BACKUP_RESTORE_FLOWCHART.md)** - Visual flowcharts and technical details
+
+**Quick Steps:**
+1. Open Metrolist → Settings → Backup and restore
+2. Tap "Restore"
+3. Select your InnerTune `.backup` file
+4. App will automatically restart with all your data restored!
+
 <div align="center">
 <h1>Development Setup</h1>
 </div>
