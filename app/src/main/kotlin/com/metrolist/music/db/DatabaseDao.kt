@@ -1554,4 +1554,42 @@ interface DatabaseDao {
     fun checkpoint() {
         raw("PRAGMA wal_checkpoint(FULL)".toSQLiteQuery())
     }
+
+    //Audio Sources
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertAudioSource(audioSource: com.metrolist.music.db.entities.AudioSources)
+
+    @Query("SELECT * FROM audioSources WHERE id = :id LIMIT 1")
+    fun getAudioSourceById(id: Int): com.metrolist.music.db.entities.AudioSources?
+
+    @Query("SELECT * FROM audioSources WHERE songId = :songId")
+    fun audioSourcesBySongId(songId: String): kotlinx.coroutines.flow.Flow<List<com.metrolist.music.db.entities.AudioSources>>
+
+    @Query("UPDATE audioSources SET isSelected = :selected WHERE songId = :songId")
+    fun updateAudioSourceSelected(songId: String, selected: Boolean)
+
+    @Query("""
+    INSERT INTO audioSources (songId, externalAudioPath, isSelected, type, title) 
+    VALUES (:songId, :externalAudioPath, :isSelected, :type, :title)
+""")
+    fun insertNewAudioSource(
+        songId: String,
+        externalAudioPath: String,
+        isSelected: Boolean,
+        type: Int,
+        title: String
+    )
+
+    @Query("UPDATE audioSources SET isSelected = 1 WHERE songId = :songId AND id = :id")
+    fun selectAudioSource(songId: String, id: Int)
+
+    @Query("UPDATE audioSources SET isSelected = 0 WHERE songId = :songId")
+    fun deselectAllAudioSources(songId: String)
+
+    @Query("DELETE FROM audioSources WHERE songId = :songId AND id = :id")
+    fun deleteAudioSourcesBySongId(songId: String, id: Int): Int
+
+    @Delete
+    fun deleteAudioSource(audioSource: com.metrolist.music.db.entities.AudioSources)
 }

@@ -30,6 +30,7 @@ import com.metrolist.music.ui.screens.artist.ArtistAlbumsScreen
 import com.metrolist.music.ui.screens.artist.ArtistItemsScreen
 import com.metrolist.music.ui.screens.artist.ArtistScreen
 import com.metrolist.music.ui.screens.artist.ArtistSongsScreen
+import com.metrolist.music.ui.screens.auswitch.AUSwitcher
 import com.metrolist.music.ui.screens.equalizer.EqScreen
 import com.metrolist.music.ui.screens.library.LibraryScreen
 import com.metrolist.music.ui.screens.playlist.AutoPlaylistScreen
@@ -174,6 +175,17 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable(
+        route = "auswitcher/{songId}",
+        arguments = listOf(
+            navArgument("songId") {
+                type = NavType.StringType
+            }
+        )
+    ) {
+        AUSwitcher(navController, scrollBehavior)
+    }
+
+    composable(
         route = "artist/{artistId}",
         arguments = listOf(
             navArgument("artistId") {
@@ -205,6 +217,8 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         ArtistAlbumsScreen(navController, scrollBehavior)
     }
+
+
 
     composable(
         route = "artist/{artistId}/items?browseId={browseId}?params={params}",

@@ -40,6 +40,7 @@ import com.metrolist.music.constants.AudioNormalizationKey
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
 import com.metrolist.music.constants.AudioOffload
+import com.metrolist.music.constants.AudioSourcesKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.AutoLoadMoreKey
 import com.metrolist.music.constants.DecryptionLibrary
@@ -168,6 +169,10 @@ fun PlayerSettings(
         HistoryDuration,
         defaultValue = 30f
     )
+    val (audioSources, onAudioSourcesChange) = rememberPreference(
+        AudioSourcesKey,
+        defaultValue = false
+    )
 
     var showAudioQualityDialog by remember {
         mutableStateOf(false)
@@ -285,6 +290,26 @@ fun PlayerSettings(
                         )
                     },
                     onClick = { showAudioQualityDialog = true }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.graphic_eq),
+                    title = { Text("Enable Audio Source Switching") },
+                    trailingContent = {
+                        Switch(
+                            checked = audioSources,
+                            onCheckedChange = onAudioSourcesChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (skipSilence) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onAudioSourcesChange(!audioSources) }
                 ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.play),

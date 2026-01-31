@@ -110,7 +110,9 @@ import kotlin.math.pow
 import kotlin.math.round
 import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
+import com.metrolist.music.constants.AudioSourcesKey
 import com.metrolist.music.listentogether.ConnectionState
+import com.metrolist.music.utils.preference
 
 @Composable
 fun PlayerMenu(
@@ -156,6 +158,8 @@ fun PlayerMenu(
     val listenTogetherRoleState = listenTogetherManager?.role?.collectAsState(initial = com.metrolist.music.listentogether.RoomRole.NONE)
     val isListenTogetherGuest = listenTogetherRoleState?.value == com.metrolist.music.listentogether.RoomRole.GUEST
     val pendingSuggestions by listenTogetherManager?.pendingSuggestions?.collectAsState(initial = emptyList()) ?: remember { mutableStateOf(emptyList()) }
+
+    val audioSources by preference(context,AudioSourcesKey, false)
 
     AddToPlaylistDialog(
         isVisible = showChoosePlaylistDialog,
@@ -574,6 +578,25 @@ fun PlayerMenu(
                             }
                         )
                     )
+                    if (audioSources) {
+                    add(
+                        Material3MenuItemData(
+                            title = { Text("Audio Sources") },
+                            description = { Text("Change the source of audio") },
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.graphic_eq),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            },
+                            onClick = {
+                                navController.navigate("auswitcher/${mediaMetadata.id}")
+                                playerBottomSheetState.collapseSoft()
+                                onDismiss()
+                            }
+                        )
+                    )}
 
                     if (isQueueTrigger != true) {
                         add(

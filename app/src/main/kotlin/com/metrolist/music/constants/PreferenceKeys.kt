@@ -66,6 +66,8 @@ val UpdateNotificationsEnabledKey = booleanPreferencesKey("updateNotifications")
 
 val AudioQualityKey = stringPreferencesKey("audioQuality")
 
+val AudioSourcesKey = booleanPreferencesKey("audioSource")
+
 enum class AudioQuality {
     AUTO,
     HIGH,
