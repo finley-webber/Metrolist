@@ -109,10 +109,12 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.util.fastForEachReversed
 import androidx.glance.appwidget.CheckBox
 import com.metrolist.music.constants.ListItemHeight
 import com.metrolist.music.constants.SelectedYtmPlaylistsKey
+import com.metrolist.music.ui.component.CreatePlaylistDialog
 import com.metrolist.music.ui.component.HideOnScrollFAB
 import com.metrolist.music.ui.component.ListItem
 import com.metrolist.music.ui.menu.AlbumMenu
@@ -160,8 +162,28 @@ fun AUSwitcher(
 
     val sources by viewModel.audioSourcesForSong(songId).collectAsState(initial = emptyList())
 
-// In your Composable
+    var showCreateAudioSourceDialog by remember { mutableStateOf(false) }
+
     var selected by remember { mutableStateOf<Selected>(Selected.None) }
+
+    var fieldStates by remember {
+        mutableStateOf(
+            listOf(
+                "Title" to TextFieldValue(""),
+                "Last Name" to TextFieldValue(""),
+                "Email" to TextFieldValue("")
+            )
+        )
+    }
+
+    if (showCreateAudioSourceDialog) {
+        CreateAudioSource(
+            onDismiss = { showCreateAudioSourceDialog = false },
+            Title = "Create Source",
+            fieldVals = fieldStates,
+            SongId = songId
+        )
+    }
 
     LazyColumn(
         contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
@@ -286,6 +308,10 @@ fun AUSwitcher(
 
 
         items(sources, key = {it.id}) { src ->
+            val selectedId = src.isSelected
+            if (selectedId) {
+                selected = Selected.Id(src.id)
+            }
             val isSelected = (selected is Selected.Id && (selected as Selected.Id).id == src.id)
             Row(
                 modifier = (if (isSelected) { Modifier
@@ -320,6 +346,15 @@ fun AUSwitcher(
                     modifier = Modifier.weight(1f)
                 )
 
+                Text(
+                    text = src.externalAudioPath,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Light,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
                 Checkbox(
                     checked = isSelected,
                     onCheckedChange = { checked ->
@@ -340,13 +375,7 @@ fun AUSwitcher(
                     modifier = Modifier.padding(16.dp),
                     onClick = {
                         Timber.d("Add")
-                        viewModel.addAudioSource(
-                            songId = songId,
-                            externalAudioPath = "test",
-                            isSelected = false,
-                            type = 0,
-                            title = "Test",
-                        )
+                        showCreateAudioSourceDialog = true
                     },
                 ) {
                     Icon(
