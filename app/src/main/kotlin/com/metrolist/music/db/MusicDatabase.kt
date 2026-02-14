@@ -24,7 +24,6 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import com.metrolist.music.db.entities.AlbumArtistMap
 import com.metrolist.music.db.entities.AlbumEntity
 import com.metrolist.music.db.entities.ArtistEntity
-import com.metrolist.music.db.entities.AudioSources
 import com.metrolist.music.db.entities.Event
 import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.LyricsEntity
@@ -98,15 +97,14 @@ class MusicDatabase(
         Event::class,
         RelatedSongMap::class,
         SetVideoIdEntity::class,
-        PlayCountEntity::class,
-        AudioSources::class
+        PlayCountEntity::class
     ],
     views = [
         SortedSongArtistMap::class,
         SortedSongAlbumMap::class,
         PlaylistSongMapPreview::class,
     ],
-    version = 31,
+    version = 30,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 2, to = 3),
@@ -137,7 +135,6 @@ class MusicDatabase(
         AutoMigration(from = 27, to = 28),
         AutoMigration(from = 28, to = 29),
         AutoMigration(from = 29, to = 30, spec = Migration29To30::class),
-        AutoMigration(from = 30, to = 31, spec = Migration30To31::class)
     ],
 )
 @TypeConverters(Converters::class)
@@ -701,22 +698,5 @@ class Migration29To30 : AutoMigrationSpec {
         if (!hasProvider) {
             db.execSQL("ALTER TABLE lyrics ADD COLUMN provider TEXT NOT NULL DEFAULT 'Unknown'")
         }
-    }
-}
-
-class Migration30To31 : AutoMigrationSpec {
-    override fun onPostMigrate(db: SupportSQLiteDatabase) {
-        db.execSQL(
-            """
-            CREATE TABLE IF NOT EXISTS `audioSources` (
-                'id' INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                `songId` TEXT NOT NULL,
-                `externalAudioPath` TEXT NOT NULL,
-                `isSelected` INTEGER NOT NULL,
-                `type` INTEGER NOT NULL,
-                `title` TEXT NOT NULL
-            )
-            """.trimIndent()
-        )
     }
 }

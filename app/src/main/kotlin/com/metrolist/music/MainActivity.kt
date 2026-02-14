@@ -85,9 +85,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
@@ -129,6 +129,8 @@ import com.metrolist.music.constants.DarkModeKey
 import com.metrolist.music.constants.DefaultOpenTabKey
 import com.metrolist.music.constants.DisableScreenshotKey
 import com.metrolist.music.constants.DynamicThemeKey
+import com.metrolist.music.constants.EnableHighRefreshRateKey
+import com.metrolist.music.constants.ListenTogetherUsernameKey
 import com.metrolist.music.constants.MiniPlayerBottomSpacing
 import com.metrolist.music.constants.MiniPlayerHeight
 import com.metrolist.music.constants.NavigationBarAnimationSpec
@@ -136,6 +138,7 @@ import com.metrolist.music.constants.NavigationBarHeight
 import com.metrolist.music.constants.PauseSearchHistoryKey
 import com.metrolist.music.constants.PureBlackKey
 import com.metrolist.music.constants.SYSTEM_DEFAULT
+import com.metrolist.music.constants.SelectedThemeColorKey
 import com.metrolist.music.constants.SlimNavBarHeight
 import com.metrolist.music.constants.SlimNavBarKey
 import com.metrolist.music.constants.StopMusicOnTaskClearKey
@@ -168,8 +171,6 @@ import com.metrolist.music.ui.screens.settings.NavigationTab
 import com.metrolist.music.ui.theme.ColorSaver
 import com.metrolist.music.ui.theme.DefaultThemeColor
 import com.metrolist.music.ui.theme.MetrolistTheme
-import com.metrolist.music.ui.menu.ListenTogetherDialog
-
 import com.metrolist.music.ui.theme.extractThemeColor
 import com.metrolist.music.ui.utils.appBarScrollBehavior
 import com.metrolist.music.ui.utils.resetHeightOffset
@@ -185,16 +186,17 @@ import com.metrolist.music.viewmodels.HomeViewModel
 import com.valentinilk.shimmer.LocalShimmerTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.Locale
 import javax.inject.Inject
-import kotlin.time.Duration.Companion.days
 
 @Suppress("DEPRECATION", "ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
 @AndroidEntryPoint
@@ -225,9 +227,24 @@ class MainActivity : ComponentActivity() {
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             if (service is MusicBinder) {
-                playerConnection = PlayerConnection(this@MainActivity, service, database, lifecycleScope)
-                // Connect Listen Together manager to player
-                listenTogetherManager.setPlayerConnection(playerConnection)
+                try {
+                    playerConnection = PlayerConnection(this@MainActivity, service, database, lifecycleScope)
+                    Timber.tag("MainActivity").d("PlayerConnection created successfully")
+                    // Connect Listen Together manager to player
+                    listenTogetherManager.setPlayerConnection(playerConnection)
+                } catch (e: Exception) {
+                    Timber.tag("MainActivity").e(e, "Failed to create PlayerConnection")
+                    // Retry after a delay of 500ms
+                    lifecycleScope.launch {
+                        delay(500)
+                        try {
+                            playerConnection = PlayerConnection(this@MainActivity, service, database, lifecycleScope)
+                            listenTogetherManager.setPlayerConnection(playerConnection)
+                        } catch (e2: Exception) {
+                            Timber.tag("MainActivity").e(e2, "Failed to create PlayerConnection on retry")
+                        }
+                    }
+                }
             }
         }
 
@@ -346,45 +363,75 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(checkForUpdates) {
             if (checkForUpdates) {
                 withContext(Dispatchers.IO) {
-                    if (System.currentTimeMillis() - Updater.lastCheckTime > 1.days.inWholeMilliseconds) {
-                        val updatesEnabled = dataStore.get(CheckForUpdatesKey, true)
-                        val notifEnabled = dataStore.get(UpdateNotificationsEnabledKey, true)
-                        if (!updatesEnabled) return@withContext
-                        Updater.getLatestVersionName().onSuccess {
-                            onLatestVersionNameChange(it)
-                            if (Updater.isUpdateAvailable(BuildConfig.VERSION_NAME, it) && notifEnabled) {
-                                val downloadUrl = Updater.getLatestDownloadUrl()
-                                val intent = Intent(Intent.ACTION_VIEW, downloadUrl.toUri())
+                    val updatesEnabled = dataStore.get(CheckForUpdatesKey, true)
+                    val notifEnabled = dataStore.get(UpdateNotificationsEnabledKey, true)
+                    if (!updatesEnabled) return@withContext
+                    
+                    Updater.checkForUpdate().onSuccess { (releaseInfo, hasUpdate) ->
+                        if (releaseInfo != null) {
+                            onLatestVersionNameChange(releaseInfo.versionName)
+                            if (hasUpdate && notifEnabled) {
+                                val downloadUrl = Updater.getDownloadUrlForCurrentVariant(releaseInfo)
+                                if (downloadUrl != null) {
+                                    val intent = Intent(Intent.ACTION_VIEW, downloadUrl.toUri())
 
-                                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
-                                val pending = PendingIntent.getActivity(this@MainActivity, 1001, intent, flags)
+                                    val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                                        (PendingIntent.FLAG_IMMUTABLE)
+                                    val pending = PendingIntent.getActivity(this@MainActivity, 1001, intent, flags)
 
-                                val notif = NotificationCompat.Builder(this@MainActivity, "updates")
-                                    .setSmallIcon(R.drawable.update)
-                                    .setContentTitle(getString(R.string.update_available_title))
-                                    .setContentText(it)
-                                    .setContentIntent(pending)
-                                    .setAutoCancel(true)
-                                    .build()
+                                    val notif = NotificationCompat.Builder(this@MainActivity, "updates")
+                                        .setSmallIcon(R.drawable.update)
+                                        .setContentTitle(getString(R.string.update_available_title))
+                                        .setContentText(releaseInfo.versionName)
+                                        .setContentIntent(pending)
+                                        .setAutoCancel(true)
+                                        .build()
 
-                                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                                    ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    NotificationManagerCompat.from(this@MainActivity).notify(1001, notif)
+                                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                                        ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        NotificationManagerCompat.from(this@MainActivity).notify(1001, notif)
+                                    }
                                 }
                             }
                         }
                     }
                 }
             } else {
-                // when the user disables updates, reset to the current version
-                // to trick the app into thinking it's on the latest version
                 onLatestVersionNameChange(BuildConfig.VERSION_NAME)
             }
         }
 
         val enableDynamicTheme by rememberPreference(DynamicThemeKey, defaultValue = true)
+        val enableHighRefreshRate by rememberPreference(EnableHighRefreshRateKey, defaultValue = true)
+
+        LaunchedEffect(enableHighRefreshRate) {
+            val window = this@MainActivity.window
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val layoutParams = window.attributes
+                if (enableHighRefreshRate) {
+                    layoutParams.preferredDisplayModeId = 0
+                } else {
+                    val modes = window.windowManager.defaultDisplay.supportedModes
+                    val mode60 = modes.firstOrNull { kotlin.math.abs(it.refreshRate - 60f) < 1f }
+                        ?: modes.minByOrNull { kotlin.math.abs(it.refreshRate - 60f) }
+
+                    if (mode60 != null) {
+                        layoutParams.preferredDisplayModeId = mode60.modeId
+                    }
+                }
+                window.attributes = layoutParams
+            } else {
+                val params = window.attributes
+                if (enableHighRefreshRate) {
+                    params.preferredRefreshRate = 0f
+                } else {
+                    params.preferredRefreshRate = 60f
+                }
+                window.attributes = params
+            }
+        }
+
         val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
         val isSystemInDarkTheme = isSystemInDarkTheme()
         val useDarkTheme = remember(darkTheme, isSystemInDarkTheme) {
@@ -400,14 +447,23 @@ class MainActivity : ComponentActivity() {
             pureBlackEnabled && useDarkTheme
         }
 
+        val (selectedThemeColorInt) = rememberPreference(SelectedThemeColorKey, defaultValue = DefaultThemeColor.toArgb())
+        val selectedThemeColor = Color(selectedThemeColorInt)
+
         var themeColor by rememberSaveable(stateSaver = ColorSaver) {
-            mutableStateOf(DefaultThemeColor)
+            mutableStateOf(selectedThemeColor)
         }
 
-        LaunchedEffect(playerConnection, enableDynamicTheme) {
+        LaunchedEffect(selectedThemeColor) {
+            if (!enableDynamicTheme) {
+                themeColor = selectedThemeColor
+            }
+        }
+
+        LaunchedEffect(playerConnection, enableDynamicTheme, selectedThemeColor) {
             val playerConnection = playerConnection
             if (!enableDynamicTheme || playerConnection == null) {
-                themeColor = DefaultThemeColor
+                themeColor = selectedThemeColor
                 return@LaunchedEffect
             }
 
@@ -425,14 +481,14 @@ class MainActivity : ComponentActivity() {
                                     .crossfade(false)
                                     .build()
                             )
-                            themeColor = result.image?.toBitmap()?.extractThemeColor() ?: DefaultThemeColor
+                            themeColor = result.image?.toBitmap()?.extractThemeColor() ?: selectedThemeColor
                         } catch (e: Exception) {
                             // Fallback to default on error
-                            themeColor = DefaultThemeColor
+                            themeColor = selectedThemeColor
                         }
                     }
                 } else {
-                    themeColor = DefaultThemeColor
+                    themeColor = selectedThemeColor
                 }
             }
         }
@@ -449,7 +505,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 val focusManager = LocalFocusManager.current
                 val density = LocalDensity.current
-                val configuration = LocalConfiguration.current
+                val configuration = LocalWindowInfo.current
                 val cutoutInsets = WindowInsets.displayCutout
                 val windowsInsets = WindowInsets.systemBars
                 val bottomInset = with(density) { windowsInsets.getBottom(density).toDp() }
@@ -479,6 +535,7 @@ class MainActivity : ComponentActivity() {
                     listOf(
                         Screens.Home.route,
                         Screens.Library.route,
+                        Screens.ListenTogether.route,
                         "settings",
                     )
                 }
@@ -521,7 +578,7 @@ class MainActivity : ComponentActivity() {
                         currentRoute!!.startsWith("search/")
                 }
 
-                val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
+                val isLandscape = configuration.containerDpSize.width > configuration.containerDpSize.height
 
                 val showRail = isLandscape && !inSearchScreen
 
@@ -579,8 +636,8 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(navBackStackEntry) {
                     if (inSearchScreen) {
                         val searchQuery = withContext(Dispatchers.IO) {
-                            if (navBackStackEntry?.arguments?.getString("query",)!!.contains("%",)) {
-                                navBackStackEntry?.arguments?.getString("query",)!!
+                            if (navBackStackEntry?.arguments?.getString("query")!!.contains("%")) {
+                                navBackStackEntry?.arguments?.getString("query")!!
                             } else {
                                 URLDecoder.decode(
                                     navBackStackEntry?.arguments?.getString("query")!!,
@@ -683,18 +740,12 @@ class MainActivity : ComponentActivity() {
                         Screens.Home.route -> R.string.home
                         Screens.Search.route -> R.string.search
                         Screens.Library.route -> R.string.filter_library
+                        Screens.ListenTogether.route -> R.string.together
                         else -> null
                     }
                 }
 
                 var showAccountDialog by remember { mutableStateOf(false) }
-                var showListenTogetherDialog by rememberSaveable { mutableStateOf(false) }
-                val pendingSuggestions by listenTogetherManager.pendingSuggestions.collectAsState()
-                val mediaMetadata by playerConnection?.mediaMetadata?.collectAsState() ?: remember { mutableStateOf(null) }
-                val listenTogetherRole by listenTogetherManager.role.collectAsState()
-                val listenTogetherStatus by listenTogetherManager.connectionState.collectAsState()
-
-
 
                 val baseBg = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
 
@@ -708,11 +759,6 @@ class MainActivity : ComponentActivity() {
                     LocalSyncUtils provides syncUtils,
                     LocalListenTogetherManager provides listenTogetherManager,
                 ) {
-                    ListenTogetherDialog(
-                        visible = showListenTogetherDialog,
-                        mediaMetadata = mediaMetadata,
-                        onDismiss = { showListenTogetherDialog = false }
-                    )
 
                     Scaffold(
                         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -742,43 +788,6 @@ class MainActivity : ComponentActivity() {
                                                     painter = painterResource(R.drawable.stats),
                                                     contentDescription = stringResource(R.string.stats)
                                                 )
-                                            }
-                                            IconButton(onClick = { showListenTogetherDialog = true }) {
-                                                BadgedBox(badge = {
-                                                    if (pendingSuggestions.isNotEmpty()) {
-                                                        Badge {
-                                                            Text(text = pendingSuggestions.size.toString())
-                                                        }
-                                                    }
-                                                }) {
-                                                    Box {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.group),
-                                                            contentDescription = stringResource(R.string.listen_together),
-                                                            modifier = Modifier.size(24.dp)
-                                                        )
-
-                                                        if (listenTogetherStatus == com.metrolist.music.listentogether.ConnectionState.CONNECTED &&
-                                                            listenTogetherRole != com.metrolist.music.listentogether.RoomRole.NONE
-                                                        ) {
-                                                            Icon(
-                                                                painter = painterResource(
-                                                                    if (listenTogetherRole == com.metrolist.music.listentogether.RoomRole.HOST) {
-                                                                        R.drawable.crown
-                                                                    } else {
-                                                                        R.drawable.share
-                                                                    }
-                                                                ),
-                                                                contentDescription = null,
-                                                                modifier = Modifier
-                                                                    .size(12.dp)
-                                                                    .align(Alignment.BottomEnd)
-                                                                    .offset(x = 4.dp, y = 4.dp),
-                                                                tint = MaterialTheme.colorScheme.primary
-                                                            )
-                                                        }
-                                                    }
-                                                }
                                             }
                                             IconButton(onClick = { showAccountDialog = true }) {
                                                 BadgedBox(badge = {
@@ -847,6 +856,14 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
+                            
+                            val onSearchLongClick: () -> Unit = remember(navController) {
+                                {
+                                    navController.navigate("recognition") {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            }
 
                             // Pre-calculate values for graphicsLayer to avoid reading state during composition
                             val navBarTotalHeight = bottomInset + NavigationBarHeight
@@ -865,6 +882,7 @@ class MainActivity : ComponentActivity() {
                                         onItemClick = onNavItemClick,
                                         pureBlack = pureBlack,
                                         slimNav = slimNav,
+                                        onSearchLongClick = onSearchLongClick,
                                         modifier = Modifier
                                             .align(Alignment.BottomCenter)
                                             .height(bottomInset + navPadding)
@@ -950,12 +968,21 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
+                            val onRailSearchLongClick: () -> Unit = remember(navController) {
+                                {
+                                    navController.navigate("recognition") {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            }
+
                             if (showRail && currentRoute != "wrapped") {
                                 AppNavigationRail(
                                     navigationItems = navigationItems,
                                     currentRoute = currentRoute,
                                     onItemClick = onRailItemClick,
-                                    pureBlack = pureBlack
+                                    pureBlack = pureBlack,
+                                    onSearchLongClick = onRailSearchLongClick
                                 )
                             }
                             Box(Modifier.weight(1f)) {
@@ -1094,6 +1121,16 @@ class MainActivity : ComponentActivity() {
         intent.removeExtra(Intent.EXTRA_TEXT)
         val coroutineScope = lifecycle.coroutineScope
 
+        val listenCode = uri.getQueryParameter("code")
+            ?: uri.getQueryParameter("room")
+            ?: uri.pathSegments.getOrNull(1)
+        val isListenLink = uri.pathSegments.firstOrNull() == "listen" || uri.host?.equals("listen", ignoreCase = true) == true
+        if (!listenCode.isNullOrBlank() && isListenLink) {
+            val username = dataStore.get(ListenTogetherUsernameKey, "").ifBlank { "Guest" }
+            listenTogetherManager.joinRoom(listenCode, username)
+            return
+        }
+
         when (val path = uri.pathSegments.firstOrNull()) {
             "playlist" -> uri.getQueryParameter("list")?.let { playlistId ->
                 if (playlistId.startsWith("OLAK5uy_")) {
@@ -1191,3 +1228,4 @@ val LocalPlayerAwareWindowInsets = compositionLocalOf<WindowInsets> { error("No 
 val LocalDownloadUtil = staticCompositionLocalOf<DownloadUtil> { error("No DownloadUtil provided") }
 val LocalSyncUtils = staticCompositionLocalOf<SyncUtils> { error("No SyncUtils provided") }
 val LocalListenTogetherManager = staticCompositionLocalOf<com.metrolist.music.listentogether.ListenTogetherManager?> { null }
+val LocalIsPlayerExpanded = compositionLocalOf { false }

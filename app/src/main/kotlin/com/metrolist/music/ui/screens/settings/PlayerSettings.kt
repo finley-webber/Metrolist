@@ -21,6 +21,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
@@ -30,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -37,31 +39,30 @@ import com.metrolist.music.BuildConfig
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.AudioNormalizationKey
+import com.metrolist.music.constants.AudioOffload
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
-import com.metrolist.music.constants.AudioOffload
-import com.metrolist.music.constants.AudioSourcesKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
+import com.metrolist.music.constants.CrossfadeDurationKey
+import com.metrolist.music.constants.CrossfadeEnabledKey
+import com.metrolist.music.constants.CrossfadeGaplessKey
 import com.metrolist.music.constants.AutoLoadMoreKey
-import com.metrolist.music.constants.DecryptionLibrary
-import com.metrolist.music.constants.DecryptionLibraryKey
-import com.metrolist.music.constants.DisableLoadMoreWhenRepeatAllKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
+import com.metrolist.music.constants.DisableLoadMoreWhenRepeatAllKey
 import com.metrolist.music.constants.EnableGoogleCastKey
-import com.metrolist.music.constants.PersistentShuffleAcrossQueuesKey
-import com.metrolist.music.constants.PlayerClient
-import com.metrolist.music.constants.PlayerClientKey
-import com.metrolist.music.constants.RememberShuffleAndRepeatKey
-import com.metrolist.music.constants.ShufflePlaylistFirstKey
+import com.metrolist.music.constants.HistoryDuration
+import com.metrolist.music.constants.KeepScreenOn
+import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
+import com.metrolist.music.constants.PersistentShuffleAcrossQueuesKey
+import com.metrolist.music.constants.RememberShuffleAndRepeatKey
+import com.metrolist.music.constants.SeekExtraSeconds
+import com.metrolist.music.constants.ShufflePlaylistFirstKey
 import com.metrolist.music.constants.SimilarContent
 import com.metrolist.music.constants.SkipSilenceInstantKey
 import com.metrolist.music.constants.SkipSilenceKey
 import com.metrolist.music.constants.StopMusicOnTaskClearKey
-import com.metrolist.music.constants.HistoryDuration
-import com.metrolist.music.constants.PauseOnMute
-import com.metrolist.music.constants.KeepScreenOn
-import com.metrolist.music.constants.SeekExtraSeconds
+import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
@@ -81,13 +82,17 @@ fun PlayerSettings(
         AudioQualityKey,
         defaultValue = AudioQuality.AUTO
     )
-    val (playerClient, onPlayerClientChange) = rememberEnumPreference(
-        PlayerClientKey,
-        defaultValue = PlayerClient.ANDROID_VR
+    val (crossfadeEnabled, onCrossfadeEnabledChange) = rememberPreference(
+        CrossfadeEnabledKey,
+        defaultValue = false
     )
-    val (decryptionLibrary, onDecryptionLibraryChange) = rememberEnumPreference(
-        DecryptionLibraryKey,
-        defaultValue = DecryptionLibrary.NEWPIPE_EXTRACTOR
+    val (crossfadeDuration, onCrossfadeDurationChange) = rememberPreference(
+        CrossfadeDurationKey,
+        defaultValue = 5f
+    )
+    val (crossfadeGapless, onCrossfadeGaplessChange) = rememberPreference(
+        CrossfadeGaplessKey,
+        defaultValue = true
     )
     val (persistentQueue, onPersistentQueueChange) = rememberPreference(
         PersistentQueueKey,
@@ -169,20 +174,8 @@ fun PlayerSettings(
         HistoryDuration,
         defaultValue = 30f
     )
-    val (audioSources, onAudioSourcesChange) = rememberPreference(
-        AudioSourcesKey,
-        defaultValue = false
-    )
 
     var showAudioQualityDialog by remember {
-        mutableStateOf(false)
-    }
-
-    var showPlayerClientDialog by remember {
-        mutableStateOf(false)
-    }
-
-    var showDecryptionLibraryDialog by remember {
         mutableStateOf(false)
     }
 
@@ -206,56 +199,6 @@ fun PlayerSettings(
         )
     }
 
-    if (showPlayerClientDialog) {
-        EnumDialog(
-            onDismiss = { showPlayerClientDialog = false },
-            onSelect = {
-                onPlayerClientChange(it)
-                showPlayerClientDialog = false
-            },
-            title = stringResource(R.string.player_client),
-            current = playerClient,
-            values = PlayerClient.values().toList(),
-            valueText = {
-                when (it) {
-                    PlayerClient.ANDROID_VR -> stringResource(R.string.player_client_android_vr)
-                    PlayerClient.WEB_REMIX -> stringResource(R.string.player_client_web_remix)
-                }
-            },
-            valueDescription = {
-                when (it) {
-                    PlayerClient.ANDROID_VR -> stringResource(R.string.player_client_android_vr_desc)
-                    PlayerClient.WEB_REMIX -> stringResource(R.string.player_client_web_remix_desc)
-                }
-            }
-        )
-    }
-
-    if (showDecryptionLibraryDialog) {
-        EnumDialog(
-            onDismiss = { showDecryptionLibraryDialog = false },
-            onSelect = {
-                onDecryptionLibraryChange(it)
-                showDecryptionLibraryDialog = false
-            },
-            title = stringResource(R.string.decryption_library),
-            current = decryptionLibrary,
-            values = DecryptionLibrary.values().toList(),
-            valueText = {
-                when (it) {
-                    DecryptionLibrary.NEWPIPE_EXTRACTOR -> stringResource(R.string.decryption_library_newpipe)
-                    DecryptionLibrary.PIPEPIPE_EXTRACTOR_API -> stringResource(R.string.decryption_library_pipepipe_api)
-                }
-            },
-            valueDescription = {
-                when (it) {
-                    DecryptionLibrary.NEWPIPE_EXTRACTOR -> stringResource(R.string.decryption_library_newpipe_desc)
-                    DecryptionLibrary.PIPEPIPE_EXTRACTOR_API -> stringResource(R.string.decryption_library_pipepipe_api_desc)
-                }
-            }
-        )
-    }
-
     Column(
         Modifier
             .windowInsetsPadding(
@@ -266,6 +209,28 @@ fun PlayerSettings(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
     ) {
+        var showCrossfadeBetaDialog by remember { mutableStateOf(false) }
+
+        if (showCrossfadeBetaDialog) {
+            DefaultDialog(
+                onDismiss = { showCrossfadeBetaDialog = false },
+                title = { Text(stringResource(R.string.crossfade_beta_title)) },
+                buttons = {
+                    TextButton(onClick = { showCrossfadeBetaDialog = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                    TextButton(onClick = {
+                        showCrossfadeBetaDialog = false
+                        onCrossfadeEnabledChange(true)
+                    }) {
+                        Text(stringResource(R.string.enable))
+                    }
+                }
+            ) {
+                Text(stringResource(R.string.crossfade_beta_message))
+            }
+        }
+
         Spacer(
             Modifier.windowInsetsPadding(
                 LocalPlayerAwareWindowInsets.current.only(
@@ -292,16 +257,24 @@ fun PlayerSettings(
                     onClick = { showAudioQualityDialog = true }
                 ))
                 add(Material3SettingsItem(
-                    icon = painterResource(R.drawable.graphic_eq),
-                    title = { Text("Enable Audio Source Switching") },
+                    icon = painterResource(R.drawable.linear_scale),
+                    title = { Text(stringResource(R.string.crossfade)) },
+                    description = { Text(stringResource(R.string.crossfade_desc)) },
+                    showBadge = true,
                     trailingContent = {
                         Switch(
-                            checked = audioSources,
-                            onCheckedChange = onAudioSourcesChange,
+                            checked = crossfadeEnabled,
+                            onCheckedChange = {
+                                if (!crossfadeEnabled) {
+                                    showCrossfadeBetaDialog = true
+                                } else {
+                                    onCrossfadeEnabledChange(false)
+                                }
+                            },
                             thumbContent = {
                                 Icon(
                                     painter = painterResource(
-                                        id = if (skipSilence) R.drawable.check else R.drawable.close
+                                        id = if (crossfadeEnabled) R.drawable.check else R.drawable.close
                                     ),
                                     contentDescription = null,
                                     modifier = Modifier.size(SwitchDefaults.IconSize)
@@ -309,34 +282,52 @@ fun PlayerSettings(
                             }
                         )
                     },
-                    onClick = { onAudioSourcesChange(!audioSources) }
+                    onClick = {
+                        if (!crossfadeEnabled) {
+                            showCrossfadeBetaDialog = true
+                        } else {
+                            onCrossfadeEnabledChange(false)
+                        }
+                    }
                 ))
-                add(Material3SettingsItem(
-                    icon = painterResource(R.drawable.play),
-                    title = { Text(stringResource(R.string.player_client)) },
-                    description = {
-                        Text(
-                            when (playerClient) {
-                                PlayerClient.ANDROID_VR -> stringResource(R.string.player_client_android_vr)
-                                PlayerClient.WEB_REMIX -> stringResource(R.string.player_client_web_remix)
+                if (crossfadeEnabled) {
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.timer),
+                        title = { Text(stringResource(R.string.crossfade_duration)) },
+                        description = {
+                            Column {
+                                Text(pluralStringResource(R.plurals.seconds, crossfadeDuration.toInt(), crossfadeDuration.toInt()))
+                                Slider(
+                                    value = crossfadeDuration,
+                                    onValueChange = onCrossfadeDurationChange,
+                                    valueRange = 1f..12f,
+                                    steps = 11
+                                )
                             }
-                        )
-                    },
-                    onClick = { showPlayerClientDialog = true }
-                ))
-                add(Material3SettingsItem(
-                    icon = painterResource(R.drawable.tune),
-                    title = { Text(stringResource(R.string.decryption_library)) },
-                    description = {
-                        Text(
-                            when (decryptionLibrary) {
-                                DecryptionLibrary.NEWPIPE_EXTRACTOR -> stringResource(R.string.decryption_library_newpipe)
-                                DecryptionLibrary.PIPEPIPE_EXTRACTOR_API -> stringResource(R.string.decryption_library_pipepipe_api)
-                            }
-                        )
-                    },
-                    onClick = { showDecryptionLibraryDialog = true }
-                ))
+                        }
+                    ))
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.album),
+                        title = { Text(stringResource(R.string.crossfade_gapless)) },
+                        description = { Text(stringResource(R.string.crossfade_gapless_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = crossfadeGapless,
+                                onCheckedChange = onCrossfadeGaplessChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (crossfadeGapless) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize)
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { onCrossfadeGaplessChange(!crossfadeGapless) }
+                    ))
+                }
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.history),
                     title = { Text(stringResource(R.string.history_duration)) },
@@ -417,15 +408,21 @@ fun PlayerSettings(
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.graphic_eq),
                     title = { Text(stringResource(R.string.audio_offload)) },
-                    description = { Text(stringResource(R.string.audio_offload_description)) },
+                    description = {
+                        Text(
+                            if (crossfadeEnabled) stringResource(R.string.audio_offload_disabled_by_crossfade)
+                            else stringResource(R.string.audio_offload_description)
+                        )
+                    },
                     trailingContent = {
                         Switch(
-                            checked = audioOffload,
+                            checked = if (crossfadeEnabled) false else audioOffload,
                             onCheckedChange = onAudioOffloadChange,
+                            enabled = !crossfadeEnabled,
                             thumbContent = {
                                 Icon(
                                     painter = painterResource(
-                                        id = if (audioOffload) R.drawable.check else R.drawable.close
+                                        id = if (!crossfadeEnabled && audioOffload) R.drawable.check else R.drawable.close
                                     ),
                                     contentDescription = null,
                                     modifier = Modifier.size(SwitchDefaults.IconSize)
@@ -433,7 +430,7 @@ fun PlayerSettings(
                             }
                         )
                     },
-                    onClick = { onAudioOffloadChange(!audioOffload) }
+                    onClick = { if (!crossfadeEnabled) onAudioOffloadChange(!audioOffload) }
                 ))
                 // Only show Cast setting in GMS builds (not in F-Droid/FOSS)
                 if (BuildConfig.CAST_AVAILABLE) {
@@ -762,7 +759,6 @@ fun PlayerSettings(
                     contentDescription = null
                 )
             }
-        },
-        scrollBehavior = scrollBehavior
+        }
     )
 }

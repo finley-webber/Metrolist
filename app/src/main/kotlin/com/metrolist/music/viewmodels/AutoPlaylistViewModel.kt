@@ -20,7 +20,6 @@ import com.metrolist.music.extensions.filterVideoSongs
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.dataStore
-import com.metrolist.music.utils.get
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -70,8 +69,9 @@ constructor(
                     "downloaded" -> database.downloadedSongs(sortType, descending)
                         .map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
 
-                    "uploaded" -> database.uploadedSongs(sortType, descending)
-                        .map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
+                    // Uploaded feature is temporarily disabled
+                    // "uploaded" -> database.uploadedSongs(sortType, descending)
+                    //     .map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
 
                     else -> kotlinx.coroutines.flow.flowOf(emptyList())
                 }
@@ -82,8 +82,9 @@ constructor(
         viewModelScope.launch(Dispatchers.IO) { syncUtils.syncLikedSongs() }
     }
 
+    // Uploaded feature is temporarily disabled
     fun syncUploadedSongs() {
-        viewModelScope.launch(Dispatchers.IO) { syncUtils.syncUploadedSongs() }
+        // viewModelScope.launch(Dispatchers.IO) { syncUtils.syncUploadedSongs() }
     }
 
     fun refresh() {
@@ -91,7 +92,8 @@ constructor(
             _isRefreshing.value = true
             when (playlist) {
                 "liked" -> syncUtils.syncLikedSongsSuspend()
-                "uploaded" -> syncUtils.syncUploadedSongsSuspend()
+                // Uploaded feature is temporarily disabled
+                // "uploaded" -> syncUtils.syncUploadedSongsSuspend()
             }
             _isRefreshing.value = false
         }

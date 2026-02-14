@@ -60,27 +60,6 @@
 -dontwarn org.openjsse.net.ssl.OpenJSSE
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 
-## Rules for PipePipeExtractor (MetroExtractor)
--keep class project.pipepipe.extractor.** { *; }
--keep class project.pipepipe.shared.** { *; }
-
-## Netty rules (used by PipePipeExtractor dependencies)
--dontwarn io.netty.**
--dontwarn org.apache.log4j.**
--dontwarn org.apache.logging.log4j.**
--dontwarn reactor.blockhound.**
--dontwarn io.micrometer.context.**
--dontwarn javax.enterprise.inject.**
-
-## Lettuce (Redis client used by PipePipeExtractor)
--dontwarn io.lettuce.core.**
-
-## Reactor
--dontwarn reactor.util.context.**
-
-## Keep Wire protobuf classes
--keep class com.squareup.wire.** { *; }
-
 ## Rules for NewPipeExtractor
 -keep class org.schabi.newpipe.extractor.services.youtube.protos.** { *; }
 -keep class org.schabi.newpipe.extractor.timeago.patterns.** { *; }
@@ -140,3 +119,34 @@
 
 ## JSoup re2j optional dependency
 -dontwarn com.google.re2j.**
+
+# Vibra fingerprint library
+-keep class com.metrolist.music.recognition.VibraSignature { *; }
+-keepclassmembers class com.metrolist.music.recognition.VibraSignature {
+    native <methods>;
+}
+
+## Kotlin Reflection Fix
+-keep class kotlin.Metadata { *; }
+-keep class kotlin.reflect.** { *; }
+-dontwarn kotlin.reflect.**
+
+## Ktor Serialization
+-keep class io.ktor.** { *; }
+-keepclassmembers class io.ktor.** { *; }
+-dontwarn io.ktor.**
+
+## Shazam Models
+-keep class com.metrolist.shazamkit.models.** { *; }
+-keepclassmembers class com.metrolist.shazamkit.models.** {
+    *;
+}
+
+## Kotlinx Serialization
+-keepattributes *Annotation*
+-keepclassmembers class com.metrolist.shazamkit.models.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.metrolist.shazamkit.models.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}

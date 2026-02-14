@@ -6,13 +6,8 @@
 package com.metrolist.music.viewmodels
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.metrolist.music.listentogether.ListenTogetherEvent
 import com.metrolist.music.listentogether.ListenTogetherManager
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -29,6 +24,7 @@ class ListenTogetherViewModel @Inject constructor(
     val logs = manager.logs
     val events = manager.events
     val hasPersistedSession = manager.hasPersistedSession
+    val blockedUsernames = manager.blockedUsernames
 
     init {
         manager.initialize()
@@ -66,15 +62,23 @@ class ListenTogetherViewModel @Inject constructor(
         manager.kickUser(userId, reason)
     }
 
+    fun blockUser(username: String) {
+        manager.blockUser(username)
+    }
+
+    fun unblockUser(username: String) {
+        manager.unblockUser(username)
+    }
+
     fun clearLogs() {
         manager.clearLogs()
     }
 
-    fun sendChat(message: String) {
-        manager.sendChat(message)
+    fun forceReconnect() {
+        manager.forceReconnect()
     }
     
-    fun forceReconnect() {
+    fun reconnect() {
         manager.forceReconnect()
     }
     
