@@ -31,6 +31,7 @@ import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.utils.CrashHandler
+import com.metrolist.music.utils.cipher.CipherDeobfuscator
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.reportException
 import dagger.hilt.android.HiltAndroidApp
@@ -59,10 +60,13 @@ class App : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
-        
+
         // Install crash handler first
         CrashHandler.install(this)
-        
+
+        // Initialize cipher deobfuscator for WEB_REMIX streaming
+        CipherDeobfuscator.initialize(this)
+
         Timber.plant(Timber.DebugTree())
 
         // تهيئة إعدادات التطبيق عند الإقلاع
@@ -189,6 +193,30 @@ class App : Application(), SingletonImageLoader.Factory {
                     } catch (e: Exception) {
                         Timber.e("Error while loading last.fm session key. %s", e.message)
                     }
+                }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { Triple(it[ContentCountryKey], it[ContentLanguageKey], it[AppLanguageKey]) }
+                .distinctUntilChanged()
+                .collect { (contentCountry, contentLanguage, appLanguage) ->
+                    val systemLocale = Locale.getDefault()
+                    val effectiveAppLocale = appLanguage
+                        ?.takeUnless { it == SYSTEM_DEFAULT }
+                        ?.let { Locale.forLanguageTag(it) }
+                        ?: systemLocale
+
+                    YouTube.locale = YouTubeLocale(
+                        gl = contentCountry?.takeIf { it != SYSTEM_DEFAULT }
+                            ?: effectiveAppLocale.country.takeIf { it in CountryCodeToName }
+                            ?: systemLocale.country.takeIf { it in CountryCodeToName }
+                            ?: "US",
+                        hl = contentLanguage?.takeIf { it != SYSTEM_DEFAULT }
+                            ?: effectiveAppLocale.toLanguageTag().takeIf { it in LanguageCodeToName }
+                            ?: effectiveAppLocale.language.takeIf { it in LanguageCodeToName }
+                            ?: "en"
+                    )
                 }
         }
     }
