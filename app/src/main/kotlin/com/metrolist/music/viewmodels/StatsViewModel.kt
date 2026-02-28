@@ -146,6 +146,17 @@ constructor(
             .firstEvent()
             .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
+    fun transferSongStats(fromSongId: String, toSongId: String, onDone: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                database.transferSongStats(fromSongId, toSongId)
+                onDone?.invoke()
+            } catch (t: Throwable) {
+                reportException(t)
+            }
+        }
+    }
+
     init {
         viewModelScope.launch {
             mostPlayedArtists.collect { artists ->

@@ -8,6 +8,7 @@ package com.metrolist.music.ui.screens
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,9 +24,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -35,6 +40,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.metrolist.innertube.models.Icon
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
@@ -45,6 +51,7 @@ import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.ChoiceChipsRow
+import com.metrolist.music.ui.component.CreatePlaylistDialog
 import com.metrolist.music.ui.component.HideOnScrollFAB
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.LocalAlbumsGrid
@@ -52,6 +59,7 @@ import com.metrolist.music.ui.component.LocalArtistsGrid
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.LocalSongsGrid
 import com.metrolist.music.ui.component.NavigationTitle
+import com.metrolist.music.ui.component.TimeTransfer
 import com.metrolist.music.ui.menu.AlbumMenu
 import com.metrolist.music.ui.menu.ArtistMenu
 import com.metrolist.music.ui.menu.SongMenu
@@ -86,6 +94,21 @@ fun StatsScreen(
     val coroutineScope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
     val selectedOption by viewModel.selectedOption.collectAsState()
+
+    var showTimeTransfer by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(showTimeTransfer) {
+        if (showTimeTransfer) {
+            viewModel.selectedOption.value = OptionStats.CONTINUOUS // "throughout time" in your VM
+            viewModel.indexChips.value = 5 // optional: ensure it’s actually “now -> throughout time”
+        }
+    }
+
+    if (showTimeTransfer) {
+        TimeTransfer(
+            onDismiss = { showTimeTransfer = false },
+        )
+    }
 
     val weeklyDates =
         if (currentDate != null && firstEvent != null) {
@@ -407,20 +430,33 @@ fun StatsScreen(
             )
         }
 
-        TopAppBar(
-            title = { Text(stringResource(R.string.stats)) },
-            navigationIcon = {
-                IconButton(
-                    onClick = navController::navigateUp,
-                    onLongClick = navController::backToMain,
-                ) {
-                    Icon(
-                        painterResource(R.drawable.arrow_back),
-                        contentDescription = null,
-                    )
+        Box() {
+            TopAppBar(
+                title = { Text(stringResource(R.string.stats)) },
+                navigationIcon = {
+                    IconButton(
+                        onClick = navController::navigateUp,
+                        onLongClick = navController::backToMain,
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.arrow_back),
+                            contentDescription = null,
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {showTimeTransfer = true},
+                        onLongClick = {showTimeTransfer = true},
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.sync),
+                            contentDescription = null,
+                        )
+                    }
                 }
-            },
-        )
+                )
+        }
     }
 }
 
