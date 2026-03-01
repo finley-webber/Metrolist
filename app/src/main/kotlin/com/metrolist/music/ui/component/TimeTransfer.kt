@@ -85,6 +85,7 @@ fun TimeTransfer(
                                 // optional: clear selection / close dialog
                                 sourceSong.value = null
                                 targetSong.value = null
+                                onDismiss()
                             }
                         }
                     },
