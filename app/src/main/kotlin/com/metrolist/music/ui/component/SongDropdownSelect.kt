@@ -1,5 +1,6 @@
 package com.metrolist.music.ui.component
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import com.metrolist.music.db.entities.SongWithStats
@@ -42,6 +42,7 @@ fun SongSelectDropdown(
     var searchText by remember { mutableStateOf("") }
     var textFieldWidthPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+
 
     val filteredSongs = songs.filter { song ->
         song.title.contains(searchText, ignoreCase = true)
@@ -86,6 +87,7 @@ fun SongSelectDropdown(
                     .verticalScroll(rememberScrollState())
             ) {
                 visibleSongs.forEach { song ->
+                    val scrollState = rememberScrollState()
                     DropdownMenuItem(
                         onClick = {
                             onSelectionChange(listOf(song))
@@ -94,11 +96,20 @@ fun SongSelectDropdown(
                             expanded = false
                         },
                         text = {
-                            Text(
-                                text = song.title,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row (modifier = Modifier.horizontalScroll(scrollState)) {
+                                Text(
+                                    text = song.title,
+                                    maxLines = 1,
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                song.artistName?.let {
+                                    Text(
+                                        text = it,
+                                        maxLines = 1,
+                                        color = androidx.compose.ui.graphics.Color.Gray,
+                                    )
+                                }
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
