@@ -183,7 +183,7 @@ object YouTube {
                                 is EpisodeItem -> "Episodes"
                                 is PodcastItem -> "Podcasts"
                                 is AlbumItem -> "Albums"
-                                is ArtistItem -> "Artists"
+                                is ArtistItem -> if (item.isProfile) "Profiles" else "Artists"
                                 is PlaylistItem -> "Playlists"
                                 is SongItem -> when {
                                     item.isEpisode -> "Episodes"
@@ -194,7 +194,7 @@ object YouTube {
                         }
 
                         // Add each group as a separate section in a logical order
-                        val sectionOrder = listOf("Songs", "Videos", "Albums", "Artists", "Playlists", "Podcasts", "Episodes", YouTubeConstants.DEFAULT_OTHER_RESULTS)
+                        val sectionOrder = listOf("Songs", "Videos", "Albums", "Artists", "Playlists", "Podcasts", "Episodes", "Profiles", YouTubeConstants.DEFAULT_OTHER_RESULTS)
                         sectionOrder.forEach { sectionName ->
                             grouped[sectionName]?.let { groupItems ->
                                 if (groupItems.isNotEmpty()) {
@@ -226,7 +226,8 @@ object YouTube {
                     "Playlists" -> 5
                     "Podcasts" -> 6
                     "Episodes" -> 7
-                    else -> 8
+                    "Profiles" -> 8
+                    else -> 9
                 }
             }
 
@@ -371,6 +372,16 @@ object YouTube {
             ?.let(::mapRuns)
             ?: response.header?.musicImmersiveHeaderRenderer?.description?.runs?.let(::mapRuns)
 
+        // Check subscription state from multiple locations:
+        // 1. musicImmersiveHeaderRenderer.subscriptionButton (regular artists)
+        // 2. musicVisualHeaderRenderer.subscriptionButton (podcast channels)
+        val immersiveSubscribed = response.header?.musicImmersiveHeaderRenderer?.subscriptionButton?.subscribeButtonRenderer?.subscribed
+        val visualSubscribed = response.header?.musicVisualHeaderRenderer?.subscriptionButton?.subscribeButtonRenderer?.subscribed
+        val isSubscribed = immersiveSubscribed ?: visualSubscribed ?: false
+
+        // Also extract channelId from visual header if not in immersive header
+        val channelIdFromVisual = response.header?.musicVisualHeaderRenderer?.subscriptionButton?.subscribeButtonRenderer?.channelId
+
         ArtistPage(
             artist = ArtistItem(
                 id = browseId,
@@ -380,7 +391,8 @@ object YouTube {
                 thumbnail = response.header?.musicImmersiveHeaderRenderer?.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl()
                     ?: response.header?.musicVisualHeaderRenderer?.foregroundThumbnail?.musicThumbnailRenderer?.getThumbnailUrl()
                     ?: response.header?.musicDetailHeaderRenderer?.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl(),
-                channelId = response.header?.musicImmersiveHeaderRenderer?.subscriptionButton?.subscribeButtonRenderer?.channelId,
+                channelId = response.header?.musicImmersiveHeaderRenderer?.subscriptionButton?.subscribeButtonRenderer?.channelId
+                    ?: channelIdFromVisual,
                 playEndpoint = response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
                     ?.tabRenderer?.content?.sectionListRenderer?.contents?.firstOrNull()?.musicShelfRenderer
                     ?.contents?.firstOrNull()?.musicResponsiveListItemRenderer?.overlay?.musicItemThumbnailOverlayRenderer
@@ -401,7 +413,8 @@ object YouTube {
                     ?: response.header?.musicImmersiveHeaderRenderer?.subscriptionButton?.subscribeButtonRenderer
                         ?.shortSubscriberCountText?.runs?.firstOrNull()?.text,
             monthlyListenerCount = response.header?.musicImmersiveHeaderRenderer?.monthlyListenerCount?.runs?.firstOrNull()?.text,
-            descriptionRuns = descriptionRuns
+            descriptionRuns = descriptionRuns,
+            isSubscribed = isSubscribed
         )
     }
 
@@ -645,13 +658,16 @@ object YouTube {
             }
         }
 
-        // Extract channelId for subscription (like artists)
-        val channelId = header?.buttons?.flatMap { button ->
+        // Extract channelId and subscription state for subscription (like artists)
+        val subscribeToggle = header?.buttons?.flatMap { button ->
             button.menuRenderer?.items ?: emptyList()
         }?.find {
             it.toggleMenuServiceItemRenderer?.defaultIcon?.iconType == "SUBSCRIBE"
-        }?.toggleMenuServiceItemRenderer?.defaultServiceEndpoint?.subscribeEndpoint?.channelIds?.firstOrNull()
-        Timber.d("[PODCAST] Extracted channelId for subscription: $channelId")
+        }?.toggleMenuServiceItemRenderer
+        val channelId = subscribeToggle?.defaultServiceEndpoint?.subscribeEndpoint?.channelIds?.firstOrNull()
+        // isSelected indicates user is currently subscribed (toggle is in "toggled" state)
+        val isChannelSubscribed = subscribeToggle?.isSelected == true
+        Timber.d("[PODCAST] Extracted channelId for subscription: $channelId, isSubscribed: $isChannelSubscribed")
 
         // Extract library tokens from the header's menu buttons OR toggle buttons
         var libraryTokens = header?.buttons?.flatMap { button ->
@@ -765,7 +781,8 @@ object YouTube {
                 ?.contents?.firstOrNull()?.musicShelfRenderer?.continuations?.getContinuation()
                 ?: response.contents?.singleColumnBrowseResultsRenderer?.tabs?.firstOrNull()
                     ?.tabRenderer?.content?.sectionListRenderer?.contents
-                    ?.find { it.musicShelfRenderer != null }?.musicShelfRenderer?.continuations?.getContinuation()
+                    ?.find { it.musicShelfRenderer != null }?.musicShelfRenderer?.continuations?.getContinuation(),
+            isChannelSubscribed = isChannelSubscribed,
         )
     }
 
@@ -898,7 +915,6 @@ object YouTube {
     }
 
     suspend fun library(browseId: String, tabIndex: Int = 0): Result<LibraryPage> {
-        println("[UPLOAD_DEBUG] library() called with browseId=$browseId, tabIndex=$tabIndex")
         return runCatching {
             val response = innerTube.browse(
                 client = WEB_REMIX,
@@ -907,77 +923,32 @@ object YouTube {
             ).body<BrowseResponse>()
 
             val tabs = response.contents?.singleColumnBrowseResultsRenderer?.tabs
-            println("[UPLOAD_DEBUG] tabs count: ${tabs?.size ?: 0}")
-
-            // Debug: log the structure for uploaded songs browseId
-            if (browseId == "FEmusic_library_privately_owned_tracks") {
-                println("[UPLOAD_DEBUG] Raw response.contents: ${response.contents}")
-                tabs?.forEachIndexed { idx, tab ->
-                    println("[UPLOAD_DEBUG] Tab $idx: tabRenderer.content null? ${tab.tabRenderer.content == null}")
-                    println("[UPLOAD_DEBUG] Tab $idx: sectionListRenderer null? ${tab.tabRenderer.content?.sectionListRenderer == null}")
-                    println("[UPLOAD_DEBUG] Tab $idx: sectionListRenderer.contents size: ${tab.tabRenderer.content?.sectionListRenderer?.contents?.size ?: 0}")
-                    tab.tabRenderer.content?.sectionListRenderer?.contents?.forEachIndexed { cIdx, content ->
-                        println("[UPLOAD_DEBUG] Tab $idx Content $cIdx: gridRenderer=${content.gridRenderer != null}, musicShelfRenderer=${content.musicShelfRenderer != null}")
-                    }
-                }
-            }
-
-            val contents = if (tabs != null && tabs.size >= tabIndex) {
+            val contents = if (tabs != null && tabs.size > tabIndex) {
                 tabs[tabIndex].tabRenderer.content?.sectionListRenderer?.contents?.firstOrNull()
-            }
-            else {
-                println("[UPLOAD_DEBUG] No tabs or tabIndex out of range")
+            } else {
                 null
             }
-
-            println("[UPLOAD_DEBUG] contents null? ${contents == null}")
-            println("[UPLOAD_DEBUG] gridRenderer null? ${contents?.gridRenderer == null}")
-            println("[UPLOAD_DEBUG] musicShelfRenderer null? ${contents?.musicShelfRenderer == null}")
 
             when {
                 contents?.gridRenderer != null -> {
                     val gridItems = contents.gridRenderer.items
-                    println("[UPLOAD_DEBUG] gridRenderer items count: ${gridItems.size}")
-                    val twoRowItems = gridItems.mapNotNull(GridRenderer.Item::musicTwoRowItemRenderer)
-                    println("[UPLOAD_DEBUG] musicTwoRowItemRenderer count: ${twoRowItems.size}")
-                    val parsedItems = twoRowItems.mapNotNull { LibraryPage.fromMusicTwoRowItemRenderer(it) }
-                    println("[UPLOAD_DEBUG] Successfully parsed items: ${parsedItems.size}")
+                    val parsedItems = gridItems
+                        .mapNotNull(GridRenderer.Item::musicTwoRowItemRenderer)
+                        .mapNotNull { LibraryPage.fromMusicTwoRowItemRenderer(it) }
                     LibraryPage(
                         items = parsedItems,
                         continuation = contents.gridRenderer.continuations?.getContinuation()
                     )
                 }
 
-                else -> { // contents?.musicShelfRenderer != null
+                else -> {
                     val shelfContents = contents?.musicShelfRenderer?.contents
-                    println("[UPLOAD_DEBUG] musicShelfRenderer contents count: ${shelfContents?.size ?: 0}")
                     if (shelfContents == null) {
-                        println("[UPLOAD_DEBUG] ERROR: musicShelfRenderer contents is null!")
                         throw IllegalStateException("No content found for browseId=$browseId")
                     }
                     val listItemRenderers = shelfContents.mapNotNull(MusicShelfRenderer.Content::musicResponsiveListItemRenderer)
-                    println("[UPLOAD_DEBUG] musicResponsiveListItemRenderer count: ${listItemRenderers.size}")
-
-                    listItemRenderers.forEachIndexed { index, renderer ->
-                        println("[UPLOAD_DEBUG] Item $index: isSong=${renderer.isSong}, isArtist=${renderer.isArtist}, isAlbum=${renderer.isAlbum}, isPlaylist=${renderer.isPlaylist}")
-                        println("[UPLOAD_DEBUG] Item $index: playlistItemData=${renderer.playlistItemData}")
-                        println("[UPLOAD_DEBUG] Item $index: flexColumns count=${renderer.flexColumns.size}")
-                        renderer.flexColumns.forEachIndexed { colIdx, col ->
-                            println("[UPLOAD_DEBUG] Item $index flexColumn $colIdx: ${col.musicResponsiveListItemFlexColumnRenderer.text?.runs?.map { it.text }}")
-                        }
-                        println("[UPLOAD_DEBUG] Item $index: thumbnail=${renderer.thumbnail?.musicThumbnailRenderer?.thumbnail}")
-                    }
-
                     val parsedItems = listItemRenderers.mapNotNull { renderer ->
-                        val result = LibraryPage.fromMusicResponsiveListItemRenderer(renderer)
-                        if (result == null) {
-                            println("[UPLOAD_DEBUG] Failed to parse renderer: videoId=${renderer.playlistItemData?.videoId}")
-                        }
-                        result
-                    }
-                    println("[UPLOAD_DEBUG] Successfully parsed items: ${parsedItems.size}")
-                    parsedItems.filterIsInstance<SongItem>().forEach { song ->
-                        println("[UPLOAD_DEBUG] Parsed song: id=${song.id}, title=${song.title}, artists=${song.artists.map { it.name }}")
+                        LibraryPage.fromMusicResponsiveListItemRenderer(renderer)
                     }
                     LibraryPage(
                         items = parsedItems,
@@ -985,9 +956,6 @@ object YouTube {
                     )
                 }
             }
-        }.onFailure { e ->
-            println("[UPLOAD_DEBUG] library() EXCEPTION for browseId=$browseId: ${e::class.simpleName}: ${e.message}")
-            e.printStackTrace()
         }
     }
 
@@ -1295,11 +1263,13 @@ object YouTube {
             innerTube.unlikePlaylist(WEB_REMIX, playlistId)
     }
 
-    suspend fun subscribeChannel(channelId: String, subscribe: Boolean) = runCatching {
+    suspend fun subscribeChannel(channelId: String, subscribe: Boolean, params: String? = null) = runCatching {
+        // Default params from YouTube Music API - required for subscription to work
+        val subscribeParams = params ?: "EgIIAhgA"
         if (subscribe)
-            innerTube.subscribeChannel(WEB_REMIX, channelId)
+            innerTube.subscribeChannel(WEB_REMIX, channelId, subscribeParams)
         else
-            innerTube.unsubscribeChannel(WEB_REMIX, channelId)
+            innerTube.unsubscribeChannel(WEB_REMIX, channelId, subscribeParams)
     }
 
     /**
@@ -1867,6 +1837,7 @@ object YouTube {
             val FILTER_COMMUNITY_PLAYLIST = SearchFilter("EgeKAQQoAEABagoQAxAEEAoQCRAF")
             val FILTER_PODCAST = SearchFilter("EgWKAQJQAWoKEAkQChAFEAMQBA%3D%3D")
             val FILTER_EPISODE = SearchFilter("EgWKAQJYAWoKEAkQChAFEAMQBA%3D%3D")
+            val FILTER_PROFILE = SearchFilter("EgWKAQJYAWoSEAUQCRADEAQQEBAVEAoQDhAR")
         }
     }
 
@@ -1926,4 +1897,59 @@ object YouTube {
             null
         }
     }
+
+    /**
+     * Upload a song to YouTube Music.
+     * @param filename The name of the file
+     * @param data The file data as ByteArray
+     * @param onProgress Callback for upload progress (0.0 to 1.0)
+     * @return true if upload succeeded
+     */
+    suspend fun uploadSong(
+        filename: String,
+        data: ByteArray,
+        onProgress: ((Float) -> Unit)? = null
+    ): Result<Boolean> = runCatching {
+        onProgress?.invoke(0f)
+
+        // Step 1: Initialize upload (5% of progress)
+        val initResponse = innerTube.initSongUpload(filename, data.size.toLong())
+        val uploadUrl = initResponse.headers["X-Goog-Upload-URL"]
+            ?: throw Exception("Failed to get upload URL")
+
+        onProgress?.invoke(0.05f)
+
+        // Step 2: Upload file data (5% to 100% of progress)
+        val uploadResponse = innerTube.uploadSongData(
+            uploadUrl = uploadUrl,
+            data = data,
+            onProgress = { uploadProgress ->
+                // Map upload progress (0-1) to overall progress (0.05-1.0)
+                onProgress?.invoke(0.05f + uploadProgress * 0.95f)
+            }
+        )
+
+        val status = uploadResponse.headers["X-Goog-Upload-Status"]
+        status == "final"
+    }
+
+    /**
+     * Delete an uploaded song from YouTube Music library.
+     * @param entityId The entity ID of the uploaded song (typically the video ID)
+     * @return true if deletion succeeded
+     */
+    suspend fun deleteUploadedSong(entityId: String): Result<Boolean> = runCatching {
+        innerTube.deletePrivatelyOwnedEntity(entityId)
+        true
+    }
+
+    /**
+     * Supported file types for upload
+     */
+    val SUPPORTED_UPLOAD_TYPES = listOf("mp3", "m4a", "wma", "flac", "ogg")
+
+    /**
+     * Maximum file size for upload (300MB)
+     */
+    const val MAX_UPLOAD_SIZE = 314572800L
 }

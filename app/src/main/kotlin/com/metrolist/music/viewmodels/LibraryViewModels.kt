@@ -49,6 +49,7 @@ import com.metrolist.music.extensions.filterVideoSongs
 import com.metrolist.music.extensions.filterYoutubeShorts
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.playback.DownloadUtil
+import com.metrolist.music.utils.PodcastRefreshTrigger
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.reportException
@@ -384,12 +385,12 @@ class LibraryPodcastsViewModel
 @Inject
 constructor(
     @ApplicationContext context: Context,
-    database: MusicDatabase,
+    private val database: MusicDatabase,
     private val syncUtils: SyncUtils,
 ) : ViewModel() {
     // Subscribed podcast channels synced from YT Music
     val subscribedChannels = database.subscribedPodcasts()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // SE "Episodes for Later" playlist fetched from YT Music (like AccountScreen)
     private val _sePlaylist = MutableStateFlow<com.metrolist.innertube.models.PlaylistItem?>(null)
@@ -400,8 +401,30 @@ constructor(
     val rdpnPlaylist = _rdpnPlaylist.asStateFlow()
 
     // Podcast host channels fetched from YT Music library/podcast_channels
-    private val _podcastChannels = MutableStateFlow<List<ArtistItem>>(emptyList())
-    val podcastChannels = _podcastChannels.asStateFlow()
+    private val _apiPodcastChannels = MutableStateFlow<List<ArtistItem>>(emptyList())
+
+    // Podcast channels: API subscriptions + locally bookmarked artists that have podcasts
+    // Only shows channels explicitly subscribed to (not derived from saved podcasts)
+    val podcastChannels = kotlinx.coroutines.flow.combine(
+        _apiPodcastChannels,
+        database.bookmarkedPodcastChannels()
+    ) { apiChannels, localPodcastChannels ->
+        // Convert locally bookmarked podcast channels to ArtistItem format
+        val localAsArtistItems = localPodcastChannels.map { artist ->
+            ArtistItem(
+                id = artist.id,
+                title = artist.artist.name,
+                thumbnail = artist.artist.thumbnailUrl,
+                shuffleEndpoint = null,
+                radioEndpoint = null,
+            )
+        }
+
+        // Combine and deduplicate by ID (prefer API version if exists)
+        val apiIds = apiChannels.map { it.id }.toSet()
+        val uniqueLocalChannels = localAsArtistItems.filter { it.id !in apiIds }
+        apiChannels + uniqueLocalChannels
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Downloaded podcast episodes
     val downloadedEpisodes =
@@ -417,6 +440,20 @@ constructor(
                 database.downloadedPodcastEpisodes(sortType, descending).map { it.filterExplicit(hideExplicit) }
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    // Saved podcast episodes (in library, not necessarily downloaded)
+    val savedEpisodes =
+        context.dataStore.data
+            .map {
+                Pair(
+                    it[SongSortTypeKey].toEnum(SongSortType.CREATE_DATE) to (it[SongSortDescendingKey] ?: true),
+                    it[HideExplicitKey] ?: false
+                )
+            }.distinctUntilChanged()
+            .flatMapLatest { (sortDesc, hideExplicit) ->
+                val (sortType, descending) = sortDesc
+                database.savedPodcastEpisodes(sortType, descending).map { it.filterExplicit(hideExplicit) }
+            }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private suspend fun fetchSePlaylist() {
         YouTube.library("FEmusic_liked_playlists").completed().onSuccess {
             _sePlaylist.value = it.items
@@ -430,7 +467,7 @@ constructor(
     private suspend fun fetchPodcastChannels() {
         YouTube.libraryPodcastChannels().onSuccess { page ->
             val channels = page.items.filterIsInstance<ArtistItem>()
-            _podcastChannels.value = channels
+            _apiPodcastChannels.value = channels
             timber.log.Timber.d("[PODCAST] Fetched ${channels.size} podcast channels from YT Music")
         }.onFailure {
             timber.log.Timber.e(it, "[PODCAST] Failed to fetch podcast channels")
@@ -459,6 +496,14 @@ constructor(
         viewModelScope.launch(Dispatchers.IO) {
             syncUtils.syncPodcastSubscriptionsSuspend()
         }
+        // Observe refresh trigger for auto-refresh after subscribe/unsubscribe
+        viewModelScope.launch(Dispatchers.IO) {
+            PodcastRefreshTrigger.refreshFlow.collect {
+                // Small delay to allow YouTube's backend to update
+                kotlinx.coroutines.delay(1500)
+                fetchPodcastChannels()
+            }
+        }
     }
 
     fun clearPodcastData() {
@@ -473,6 +518,15 @@ constructor(
         fetchRdpnPlaylist()
         syncUtils.syncPodcastSubscriptionsSuspend()
         syncUtils.syncEpisodesForLaterSuspend()
+    }
+
+    /**
+     * Force refresh podcast channels. Called when screen becomes visible.
+     */
+    fun refreshChannels() {
+        viewModelScope.launch(Dispatchers.IO) {
+            fetchPodcastChannels()
+        }
     }
 }
 
