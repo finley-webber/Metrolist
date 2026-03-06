@@ -13,13 +13,14 @@ import io.ktor.client.request.parameter
 import io.ktor.http.ContentType
 import io.ktor.http.encodeURLParameter
 import io.ktor.serialization.kotlinx.json.json
-import io.ktor.util.decodeBase64String
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.serialization.json.Json
 import java.lang.Integer.min
 import kotlin.math.abs
 
-@OptIn(ExperimentalSerializationApi::class)
+@OptIn(ExperimentalSerializationApi::class, ExperimentalEncodingApi::class)
 private val client = HttpClient {
     expectSuccess = true
 
@@ -50,29 +51,29 @@ private const val HEAD_CUT_LIMIT = 30
 object KuGou {
     var useTraditionalChinese: Boolean = false
 
-    suspend fun getLyrics(title: String, artist: String, duration: Int): Result<String> =
+    suspend fun getLyrics(title: String, artist: String, duration: Int, album: String? = null): Result<String> =
         runCatching {
-            val keyword = generateKeyword(title, artist)
+            val keyword = generateKeyword(title, artist, album)
             getLyricsCandidate(keyword, duration)?.let { candidate ->
-                downloadLyrics(candidate.id, candidate.accesskey).content.decodeBase64String()
+                Base64.Default.decode(downloadLyrics(candidate.id, candidate.accesskey).content).decodeToString()
                     .normalize()
             } ?: throw IllegalStateException("No lyrics candidate")
         }
 
     suspend fun getAllPossibleLyricsOptions(
-        title: String, artist: String, duration: Int, callback: (String) -> Unit
+        title: String, artist: String, duration: Int, album: String? = null, callback: (String) -> Unit
     ) {
-        val keyword = generateKeyword(title, artist)
+        val keyword = generateKeyword(title, artist, album)
         searchSongs(keyword).data.info.forEach {
             if (duration == -1 || abs(it.duration - duration) <= DURATION_TOLERANCE) {
                 searchLyricsByHash(it.hash).candidates.firstOrNull()?.let { candidate ->
-                    downloadLyrics(candidate.id, candidate.accesskey).content.decodeBase64String()
+                    Base64.Default.decode(downloadLyrics(candidate.id, candidate.accesskey).content).decodeToString()
                         .normalize().let(callback)
                 }
             }
         }
         searchLyricsByKeyword(keyword, duration).candidates.forEach { candidate ->
-            downloadLyrics(candidate.id, candidate.accesskey).content.decodeBase64String()
+            Base64.Default.decode(downloadLyrics(candidate.id, candidate.accesskey).content).decodeToString()
                 .normalize().let(callback)
         }
     }
@@ -95,9 +96,18 @@ object KuGou {
             parameter("plat", 0)
             parameter("pagesize", PAGE_SIZE)
             parameter("showtype", 0)
+            val searchQuery = buildString {
+                append(keyword.title)
+                append(" - ")
+                append(keyword.artist)
+                if (!keyword.album.isNullOrBlank()) {
+                    append(" ")
+                    append(keyword.album)
+                }
+            }
             url.encodedParameters.append(
                 "keyword",
-                "${keyword.title} - ${keyword.artist}".encodeURLParameter(spaceToPlus = false)
+                searchQuery.encodeURLParameter(spaceToPlus = false)
             )
         }.body<SearchSongResponse>()
 
@@ -109,9 +119,18 @@ object KuGou {
             parameter(
                 "duration", duration.takeIf { it != -1 }?.times(1000)
             ) // if duration == -1, we don't care duration
+            val searchQuery = buildString {
+                append(keyword.title)
+                append(" - ")
+                append(keyword.artist)
+                if (!keyword.album.isNullOrBlank()) {
+                    append(" ")
+                    append(keyword.album)
+                }
+            }
             url.encodedParameters.append(
                 "keyword",
-                "${keyword.title} - ${keyword.artist}".encodeURLParameter(spaceToPlus = false)
+                searchQuery.encodeURLParameter(spaceToPlus = false)
             )
         }.body<SearchLyricsResponse>()
 
@@ -143,11 +162,11 @@ object KuGou {
         artist.replace(", ", "、").replace(" & ", "、").replace(".", "").replace("和", "、")
             .replace("\\(.*\\)".toRegex(), "").replace("（.*）".toRegex(), "")
 
-    fun generateKeyword(title: String, artist: String) =
-        Keyword(normalizeTitle(title), normalizeArtist(artist))
+    fun generateKeyword(title: String, artist: String, album: String? = null) =
+        Keyword(normalizeTitle(title), normalizeArtist(artist), album)
 
     private fun String.normalize(): String =
-        replace("&apos;", "'").lines().filter { line -> line.matches(ACCEPTED_REGEX) }
+        lines().filter { line -> line.matches(ACCEPTED_REGEX) }
             .let { lines ->
                 // Remove useless information such as singer, writer, composer, guitar, etc.
                 var headCutLine = 0

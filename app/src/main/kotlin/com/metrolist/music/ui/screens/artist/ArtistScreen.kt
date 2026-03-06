@@ -8,7 +8,6 @@ package com.metrolist.music.ui.screens.artist
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -19,18 +18,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.add
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,7 +37,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -67,42 +64,49 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
-import coil3.util.Logger
+import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.innertube.models.ArtistItem
+import com.metrolist.innertube.models.EpisodeItem
 import com.metrolist.innertube.models.PlaylistItem
+import com.metrolist.innertube.models.PodcastItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.music.LocalDatabase
+import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.AppBarHeight
 import com.metrolist.music.constants.HideExplicitKey
+import com.metrolist.music.constants.ShowArtistDescriptionKey
+import com.metrolist.music.constants.ShowArtistSubscriberCountKey
+import com.metrolist.music.constants.ShowMonthlyListenersKey
 import com.metrolist.music.db.entities.ArtistEntity
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.AlbumGridItem
-import com.metrolist.music.ui.component.AutoResizeText
-import com.metrolist.music.ui.component.FontSizeRange
+import com.metrolist.music.ui.component.ExpandableText
 import com.metrolist.music.ui.component.HideOnScrollFAB
 import com.metrolist.music.ui.component.IconButton
+import com.metrolist.music.ui.component.LinkSegment
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.NavigationTitle
 import com.metrolist.music.ui.component.SongListItem
@@ -120,14 +124,13 @@ import com.metrolist.music.ui.menu.YouTubePlaylistMenu
 import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.ui.utils.fadingEdge
-import com.metrolist.music.utils.rememberPreference
+import com.metrolist.music.ui.utils.isScrollingUp
 import com.metrolist.music.ui.utils.resize
+import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.ArtistViewModel
 import com.valentinilk.shimmer.shimmer
-import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalResources
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -142,13 +145,19 @@ fun ArtistScreen(
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     val playerConnection = LocalPlayerConnection.current ?: return
+    val listenTogetherManager = LocalListenTogetherManager.current
+    val isGuest = listenTogetherManager?.isInRoom == true && !listenTogetherManager.isHost
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val artistPage = viewModel.artistPage
     val libraryArtist by viewModel.libraryArtist.collectAsState()
     val librarySongs by viewModel.librarySongs.collectAsState()
     val libraryAlbums by viewModel.libraryAlbums.collectAsState()
+    val isChannelSubscribed by viewModel.isChannelSubscribed.collectAsState()
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
+    val showArtistDescription by rememberPreference(key = ShowArtistDescriptionKey, defaultValue = true)
+    val showArtistSubscriberCount by rememberPreference(key = ShowArtistSubscriberCountKey, defaultValue = true)
+    val showMonthlyListeners by rememberPreference(key = ShowMonthlyListenersKey, defaultValue = true)
 
     val lazyListState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -334,26 +343,10 @@ fun ArtistScreen(
                                     // Subscribe Button
                                     OutlinedButton(
                                         onClick = {
-                                            database.transaction {
-                                                val artist = libraryArtist?.artist
-                                                if (artist != null) {
-                                                    update(artist.toggleLike())
-                                                } else {
-                                                    artistPage?.artist?.let {
-                                                        insert(
-                                                            ArtistEntity(
-                                                                id = it.id,
-                                                                name = it.title,
-                                                                channelId = it.channelId,
-                                                                thumbnailUrl = it.thumbnail,
-                                                            ).toggleLike()
-                                                        )
-                                                    }
-                                                }
-                                            }
+                                            viewModel.toggleChannelSubscription()
                                         },
                                         colors = ButtonDefaults.outlinedButtonColors(
-                                            containerColor = if (libraryArtist?.artist?.bookmarkedAt != null)
+                                            containerColor = if (isChannelSubscribed)
                                                 MaterialTheme.colorScheme.surface
                                             else
                                                 Color.Transparent
@@ -361,11 +354,10 @@ fun ArtistScreen(
                                         shape = RoundedCornerShape(50),
                                         modifier = Modifier.height(40.dp)
                                     ) {
-                                        val isSubscribed = libraryArtist?.artist?.bookmarkedAt != null
                                         Text(
-                                            text = stringResource(if (isSubscribed) R.string.subscribed else R.string.subscribe),
+                                            text = stringResource(if (isChannelSubscribed) R.string.subscribed else R.string.subscribe),
                                             fontSize = 14.sp,
-                                            color = if (!isSubscribed) MaterialTheme.colorScheme.error else LocalContentColor.current
+                                            color = if (!isChannelSubscribed) MaterialTheme.colorScheme.error else LocalContentColor.current
                                         )
                                     }
 
@@ -376,7 +368,7 @@ fun ArtistScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         // Radio Button
-                                        if (!showLocal) {
+                                        if (!showLocal && !isGuest) {
                                             artistPage?.artist?.radioEndpoint?.let { radioEndpoint ->
                                                 OutlinedButton(
                                                     onClick = {
@@ -400,7 +392,7 @@ fun ArtistScreen(
                                         }
 
                                         // Shuffle Button
-                                        if (!showLocal) {
+                                        if (!showLocal && !isGuest) {
                                             artistPage?.artist?.shuffleEndpoint?.let { shuffleEndpoint ->
                                                 IconButton(
                                                     onClick = {
@@ -421,7 +413,7 @@ fun ArtistScreen(
                                                     )
                                                 }
                                             }
-                                        } else if (librarySongs.isNotEmpty()) {
+                                        } else if (librarySongs.isNotEmpty() && !isGuest) {
                                             IconButton(
                                                 onClick = {
                                                     val shuffledSongs = librarySongs.shuffled()
@@ -453,6 +445,68 @@ fun ArtistScreen(
                                 }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
+                        }
+                    }
+                }
+
+                // About Artist Section
+                if (!showLocal && (showArtistDescription || showArtistSubscriberCount || showMonthlyListeners)) {
+                    val description = artistPage?.description
+                    val descriptionRuns = artistPage?.descriptionRuns
+                    val subscriberCount = artistPage?.subscriberCountText
+                    val monthlyListeners = artistPage?.monthlyListenerCount
+
+                    if ((showArtistDescription && !description.isNullOrEmpty()) ||
+                        (showArtistSubscriberCount && !subscriberCount.isNullOrEmpty()) ||
+                        (showMonthlyListeners && !monthlyListeners.isNullOrEmpty())) {
+                        item(key = "about_artist") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .padding(bottom = 16.dp)
+                                    .animateItem()
+                            ) {
+                                if (showArtistDescription && (!description.isNullOrEmpty() || !descriptionRuns.isNullOrEmpty())) {
+                                    Text(
+                                        text = stringResource(R.string.about_artist),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                }
+
+                                if (showArtistSubscriberCount && !subscriberCount.isNullOrEmpty()) {
+                                    Text(
+                                        text = subscriberCount,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    )
+                                }
+
+                                if (showMonthlyListeners && !monthlyListeners.isNullOrEmpty()) {
+                                    Text(
+                                        text = monthlyListeners,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = if (showArtistDescription && !description.isNullOrEmpty()) 8.dp else 0.dp)
+                                    )
+                                }
+
+                                if (showArtistDescription && (!description.isNullOrEmpty() || !descriptionRuns.isNullOrEmpty())) {
+                                    ExpandableText(
+                                        text = description.orEmpty(),
+                                        runs = descriptionRuns?.map {
+                                            LinkSegment(
+                                                text = it.text,
+                                                url = it.navigationEndpoint?.urlEndpoint?.url
+                                            )
+                                        },
+                                        collapsedMaxLines = 3
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -691,6 +745,14 @@ fun ArtistScreen(
                                                             is AlbumItem -> navController.navigate("album/${item.id}")
                                                             is ArtistItem -> navController.navigate("artist/${item.id}")
                                                             is PlaylistItem -> navController.navigate("online_playlist/${item.id}")
+                                                            is PodcastItem -> navController.navigate("online_podcast/${item.id}")
+                                                            is EpisodeItem ->
+                                                                playerConnection.playQueue(
+                                                                    YouTubeQueue(
+                                                                        WatchEndpoint(videoId = item.id),
+                                                                        item.toMediaMetadata()
+                                                                    ),
+                                                                )
                                                         }
                                                     },
                                                     onLongClick = {
@@ -723,6 +785,20 @@ fun ArtistScreen(
                                                                         coroutineScope = coroutineScope,
                                                                         onDismiss = menuState::dismiss,
                                                                     )
+
+                                                                is PodcastItem ->
+                                                                    YouTubePlaylistMenu(
+                                                                        playlist = item.asPlaylistItem(),
+                                                                        coroutineScope = coroutineScope,
+                                                                        onDismiss = menuState::dismiss,
+                                                                    )
+
+                                                                is EpisodeItem ->
+                                                                    YouTubeSongMenu(
+                                                                        song = item.asSongItem(),
+                                                                        navController = navController,
+                                                                        onDismiss = menuState::dismiss,
+                                                                    )
                                                             }
                                                         }
                                                     },
@@ -738,8 +814,12 @@ fun ArtistScreen(
             }
         }
 
+        val isScrollingUp = lazyListState.isScrollingUp()
+        val showLocalFab = librarySongs.isNotEmpty() && libraryArtist?.artist?.isLocal != true
+        
+        // Library/Local Toggle FAB
         HideOnScrollFAB(
-            visible = librarySongs.isNotEmpty() && libraryArtist?.artist?.isLocal != true,
+            visible = showLocalFab,
             lazyListState = lazyListState,
             icon = if (showLocal) R.drawable.language else R.drawable.library_music,
             onClick = {
@@ -747,6 +827,125 @@ fun ArtistScreen(
                 if (!showLocal && artistPage == null) viewModel.fetchArtistsFromYTM()
             }
         )
+        
+        // Play All FAB (Stacked above Library/Local FAB if visible)
+        val canPlayAll = !isGuest && (
+            (showLocal && librarySongs.isNotEmpty()) || 
+            (!showLocal && artistPage?.sections?.any { 
+                (it.items.firstOrNull() as? SongItem)?.album != null 
+            } == true)
+        )
+
+        if (canPlayAll) {
+             androidx.compose.animation.AnimatedVisibility(
+                visible = isScrollingUp,
+                enter = androidx.compose.animation.slideInVertically { it * 2 },
+                exit = androidx.compose.animation.slideOutVertically { it * 2 },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .windowInsetsPadding(
+                        LocalPlayerAwareWindowInsets.current
+                            .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+                    )
+                    // Add padding to position it above the other FAB (56dp height + 16dp padding + 8dp spacing)
+                    // If the other FAB is visible.
+                    .padding(bottom = if (showLocalFab) 64.dp else 0.dp)
+            ) {
+                val onPlayAllClick: () -> Unit = {
+                     if (showLocal) {
+                         if (librarySongs.isNotEmpty()) {
+                            playerConnection.playQueue(
+                                ListQueue(
+                                    title = libraryArtist?.artist?.name ?: "Unknown Artist",
+                                    items = librarySongs.map { it.toMediaItem() }
+                                )
+                            )
+                        }
+                    } else if (artistPage != null) {
+                        val songSection = artistPage.sections.find { section ->
+                            (section.items.firstOrNull() as? SongItem)?.album != null
+                        }
+                        
+                        val moreEndpoint = songSection?.moreEndpoint
+                        if (moreEndpoint != null) {
+                            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                val result = YouTube.artistItems(moreEndpoint).getOrNull()
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    if (result != null && result.items.isNotEmpty()) {
+                                        val songs = result.items.filterIsInstance<SongItem>().map { it.toMediaItem() }
+                                        playerConnection.playQueue(
+                                            ListQueue(
+                                                title = artistPage.artist.title,
+                                                items = songs
+                                            )
+                                        )
+                                    } else {
+                                        // Fallback to loaded items
+                                        val songs = songSection.items.filterIsInstance<SongItem>().map { it.toMediaItem() }
+                                        if (songs.isNotEmpty()) {
+                                            playerConnection.playQueue(
+                                                ListQueue(
+                                                    title = artistPage.artist.title,
+                                                    items = songs
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            } else if (songSection != null) {
+                            // Use loaded items if no more endpoint
+                            val songs = songSection.items.filterIsInstance<SongItem>().map { it.toMediaItem() }
+                            playerConnection.playQueue(
+                                ListQueue(
+                                    title = artistPage.artist.title,
+                                    items = songs
+                                )
+                            )
+                        } else {
+                            // Fallback to shuffle endpoint (stripped) if no song section found
+                            val shuffleEndpoint = artistPage.artist.shuffleEndpoint
+                            if (shuffleEndpoint != null) {
+                                val endpoint = if (shuffleEndpoint.playlistId != null) {
+                                    WatchEndpoint(
+                                        playlistId = shuffleEndpoint.playlistId,
+                                        params = null, // Remove shuffle params to play in order
+                                        videoId = null // Ensure videoId is null to start from beginning of playlist
+                                    )
+                                } else {
+                                    shuffleEndpoint
+                                }
+                                playerConnection.playQueue(YouTubeQueue(endpoint))
+                            }
+                        }
+                    }
+                }
+
+                if (showLocalFab) {
+                     androidx.compose.material3.SmallFloatingActionButton(
+                        modifier = Modifier.padding(16.dp).offset(x = (-4).dp), // Align center with standard FAB (56dp vs 48dp)
+                        onClick = onPlayAllClick
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.play),
+                            contentDescription = "Play All",
+                        )
+                    }
+                } else {
+                    androidx.compose.material3.FloatingActionButton(
+                        modifier = Modifier.padding(16.dp),
+                        onClick = onPlayAllClick
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.play),
+                            contentDescription = "Play All",
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                }
+            }
+        }
+
 
         SnackbarHost(
             hostState = snackbarHostState,

@@ -21,25 +21,30 @@ import androidx.room.migration.AutoMigrationSpec
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
+import com.metrolist.music.db.daos.SpeedDialDao
 import com.metrolist.music.db.entities.AlbumArtistMap
 import com.metrolist.music.db.entities.AlbumEntity
 import com.metrolist.music.db.entities.ArtistEntity
 import com.metrolist.music.db.entities.Event
 import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.LyricsEntity
-import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.db.entities.PlayCountEntity
+import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.db.entities.PlaylistSongMap
 import com.metrolist.music.db.entities.PlaylistSongMapPreview
+import com.metrolist.music.db.entities.PodcastEntity
+import com.metrolist.music.db.entities.RecognitionHistory
 import com.metrolist.music.db.entities.RelatedSongMap
 import com.metrolist.music.db.entities.SearchHistory
 import com.metrolist.music.db.entities.SetVideoIdEntity
 import com.metrolist.music.db.entities.SongAlbumMap
 import com.metrolist.music.db.entities.SongArtistMap
 import com.metrolist.music.db.entities.SongEntity
+import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.db.entities.SortedSongAlbumMap
 import com.metrolist.music.db.entities.SortedSongArtistMap
 import com.metrolist.music.extensions.toSQLiteQuery
+import timber.log.Timber
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -48,6 +53,9 @@ import java.util.Date
 class MusicDatabase(
     private val delegate: InternalDatabase,
 ) : DatabaseDao by delegate.dao {
+    val speedDialDao: SpeedDialDao
+        get() = delegate.speedDialDao
+
     val openHelper: SupportSQLiteOpenHelper
         get() = delegate.openHelper
 
@@ -63,6 +71,17 @@ class MusicDatabase(
             transactionExecutor.execute {
                 runInTransaction {
                     block(this@MusicDatabase)
+                }
+            }
+        }
+
+    suspend fun withTransaction(block: suspend MusicDatabase.() -> Unit) =
+        with(delegate) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runInTransaction {
+                    kotlinx.coroutines.runBlocking {
+                        block(this@MusicDatabase)
+                    }
                 }
             }
         }
@@ -86,14 +105,17 @@ class MusicDatabase(
         Event::class,
         RelatedSongMap::class,
         SetVideoIdEntity::class,
-        PlayCountEntity::class
+        PlayCountEntity::class,
+        RecognitionHistory::class,
+        SpeedDialItem::class,
+        PodcastEntity::class
     ],
     views = [
         SortedSongArtistMap::class,
         SortedSongAlbumMap::class,
         PlaylistSongMapPreview::class,
     ],
-    version = 26,
+    version = 35,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 2, to = 3),
@@ -119,12 +141,22 @@ class MusicDatabase(
         AutoMigration(from = 22, to = 23, spec = Migration22To23::class),
         AutoMigration(from = 23, to = 24, spec = Migration23To24::class),
         AutoMigration(from = 24, to = 25),
-        AutoMigration(from = 25, to = 26)
+        AutoMigration(from = 25, to = 26),
+        AutoMigration(from = 26, to = 27),
+        AutoMigration(from = 27, to = 28),
+        AutoMigration(from = 28, to = 29),
+        AutoMigration(from = 29, to = 30, spec = Migration29To30::class),
+        AutoMigration(from = 30, to = 31),
+        AutoMigration(from = 31, to = 32),
+        AutoMigration(from = 32, to = 33),
+        AutoMigration(from = 33, to = 34),
+        AutoMigration(from = 34, to = 35),
     ],
 )
 @TypeConverters(Converters::class)
 abstract class InternalDatabase : RoomDatabase() {
     abstract val dao: DatabaseDao
+    abstract val speedDialDao: SpeedDialDao
 
     companion object {
         const val DB_NAME = "song.db"
@@ -138,7 +170,7 @@ abstract class InternalDatabase : RoomDatabase() {
                         MIGRATION_1_2,
                         MIGRATION_21_24,
                         MIGRATION_22_24,
-                        MIGRATION_24_25
+                        MIGRATION_24_25,
                     )
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
@@ -153,7 +185,7 @@ abstract class InternalDatabase : RoomDatabase() {
                                 db.query("PRAGMA wal_autocheckpoint = 1000").close()
                                 db.query("PRAGMA synchronous = NORMAL").close()
                             } catch (e: Exception) {
-                                android.util.Log.e("MusicDatabase", "Failed to set PRAGMA settings", e)
+                                Timber.tag("MusicDatabase").e(e, "Failed to set PRAGMA settings")
                             }
                         }
                     })
@@ -379,24 +411,24 @@ val MIGRATION_21_24 =
             try {
                 db.execSQL("ALTER TABLE song ADD COLUMN libraryAddToken TEXT DEFAULT ''")
             } catch (e: Exception) {
-                android.util.Log.w("Migration", "Column libraryAddToken may already exist")
+                Timber.tag("Migration").w("Column libraryAddToken may already exist")
             }
             try {
                 db.execSQL("ALTER TABLE song ADD COLUMN libraryRemoveToken TEXT DEFAULT ''")
             } catch (e: Exception) {
-                android.util.Log.w("Migration", "Column libraryRemoveToken may already exist")
+                Timber.tag("Migration").w("Column libraryRemoveToken may already exist")
             }
             try {
                 db.execSQL("ALTER TABLE song ADD COLUMN romanizeLyrics INTEGER NOT NULL DEFAULT 1")
             } catch (e: Exception) {
-                android.util.Log.w("Migration", "Column romanizeLyrics may already exist")
+                Timber.tag("Migration").w("Column romanizeLyrics may already exist")
             }
             try {
                 db.execSQL("ALTER TABLE song ADD COLUMN isDownloaded INTEGER NOT NULL DEFAULT 0")
             } catch (e: Exception) {
-                android.util.Log.w("Migration", "Column isDownloaded may already exist")
+                Timber.tag("Migration").w("Column isDownloaded may already exist")
             }
-            
+
             // From 23→24: Add isUploaded
             var hasIsUploaded = false
             db.query("PRAGMA table_info('song')").use { cursor ->
@@ -582,27 +614,27 @@ class Migration21To22 : AutoMigrationSpec {
         try {
             db.execSQL("ALTER TABLE song ADD COLUMN libraryAddToken TEXT DEFAULT ''")
         } catch (e: Exception) {
-            android.util.Log.w("Migration21To22", "Column may already exist", e)
+            Timber.tag("Migration21To22").w(e, "Column may already exist")
         }
         try {
             db.execSQL("ALTER TABLE song ADD COLUMN libraryRemoveToken TEXT DEFAULT ''")
         } catch (e: Exception) {
-            android.util.Log.w("Migration21To22", "Column may already exist", e)
+            Timber.tag("Migration21To22").w(e, "Column may already exist")
         }
         try {
             db.execSQL("ALTER TABLE song ADD COLUMN romanizeLyrics INTEGER NOT NULL DEFAULT 1")
         } catch (e: Exception) {
-            android.util.Log.w("Migration21To22", "Column may already exist", e)
+            Timber.tag("Migration21To22").w(e, "Column may already exist")
         }
         try {
             db.execSQL("ALTER TABLE song ADD COLUMN isDownloaded INTEGER NOT NULL DEFAULT 0")
         } catch (e: Exception) {
-            android.util.Log.w("Migration21To22", "Column may already exist", e)
+            Timber.tag("Migration21To22").w(e, "Column may already exist")
         }
     }
 }
 
-class Migration22To23: AutoMigrationSpec {
+class Migration22To23 : AutoMigrationSpec {
     override fun onPostMigrate(db: SupportSQLiteDatabase) {
         // No changes needed for 22→23
     }
@@ -649,3 +681,39 @@ val MIGRATION_24_25 =
             }
         }
     }
+
+class Migration29To30 : AutoMigrationSpec {
+    override fun onPostMigrate(db: SupportSQLiteDatabase) {
+        // Ensure isVideo column exists (safeguard)
+        var hasIsVideo = false
+        db.query("PRAGMA table_info('song')").use { cursor ->
+            val nameIndex = cursor.getColumnIndex("name")
+            while (cursor.moveToNext()) {
+                val colName = if (nameIndex >= 0) cursor.getString(nameIndex) else null
+                if (colName == "isVideo") {
+                    hasIsVideo = true
+                    break
+                }
+            }
+        }
+        if (!hasIsVideo) {
+            db.execSQL("ALTER TABLE song ADD COLUMN isVideo INTEGER NOT NULL DEFAULT 0")
+        }
+
+        // Ensure provider column exists in lyrics table
+        var hasProvider = false
+        db.query("PRAGMA table_info('lyrics')").use { cursor ->
+            val nameIndex = cursor.getColumnIndex("name")
+            while (cursor.moveToNext()) {
+                val colName = if (nameIndex >= 0) cursor.getString(nameIndex) else null
+                if (colName == "provider") {
+                    hasProvider = true
+                    break
+                }
+            }
+        }
+        if (!hasProvider) {
+            db.execSQL("ALTER TABLE lyrics ADD COLUMN provider TEXT NOT NULL DEFAULT 'Unknown'")
+        }
+    }
+}

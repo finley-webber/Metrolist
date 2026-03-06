@@ -12,7 +12,6 @@ import androidx.room.PrimaryKey
 import com.metrolist.innertube.YouTube
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 
@@ -46,11 +45,14 @@ data class AlbumEntity(
         isUploaded = !isUploaded
     )
 
+    fun toggleLibrary() = copy(
+        inLibrary = if (inLibrary != null) null else LocalDateTime.now()
+    )
+
     fun toggleLike() = localToggleLike().also {
         CoroutineScope(Dispatchers.IO).launch {
             if (playlistId != null)
                 YouTube.likePlaylist(playlistId, bookmarkedAt == null)
-            this.cancel()
         }
     }
 }

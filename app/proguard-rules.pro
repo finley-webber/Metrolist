@@ -5,6 +5,28 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
+# WEB_REMIX Streaming - WebView JavaScript interfaces
+-keepclassmembers class com.metrolist.music.utils.sabr.EjsNTransformSolver$SolverWebView {
+    @android.webkit.JavascriptInterface public *;
+}
+-keepclassmembers class com.metrolist.music.utils.cipher.CipherWebView {
+    @android.webkit.JavascriptInterface public *;
+}
+-keepclassmembers class com.metrolist.music.utils.potoken.PoTokenWebView {
+    @android.webkit.JavascriptInterface public *;
+}
+
+# Keep streaming utility classes
+-keep class com.metrolist.music.utils.cipher.** { *; }
+-keep class com.metrolist.music.utils.sabr.** { *; }
+-keep class com.metrolist.music.utils.potoken.** { *; }
+
+# Keep coroutine continuation for WebView callbacks
+-keepclassmembers class * {
+    void resume(...);
+    void resumeWithException(...);
+}
+
 # If your project uses WebView with JS, uncomment the following
 # and specify the fully qualified class name to the JavaScript interface
 # class:
@@ -116,3 +138,41 @@
 -keep class com.metrolist.music.cast.** { *; }
 -keep class com.google.android.gms.cast.** { *; }
 -keep class androidx.mediarouter.** { *; }
+
+## JSoup re2j optional dependency
+-dontwarn com.google.re2j.**
+
+# Vibra fingerprint library
+-keep class com.metrolist.music.recognition.VibraSignature { *; }
+-keepclassmembers class com.metrolist.music.recognition.VibraSignature {
+    native <methods>;
+}
+
+## Kotlin Reflection Fix
+-keep class kotlin.Metadata { *; }
+-keep class kotlin.reflect.** { *; }
+-dontwarn kotlin.reflect.**
+
+## Ktor Serialization
+-keep class io.ktor.** { *; }
+-keepclassmembers class io.ktor.** { *; }
+-dontwarn io.ktor.**
+
+## Listen Together Protobuf
+-keep class com.metrolist.music.listentogether.proto.** { *; }
+-keepclassmembers class com.metrolist.music.listentogether.proto.** { *; }
+
+## Shazam Models
+-keep class com.metrolist.shazamkit.models.** { *; }
+-keepclassmembers class com.metrolist.shazamkit.models.** {
+    *;
+}
+
+## Kotlinx Serialization
+-keepattributes *Annotation*
+-keepclassmembers class com.metrolist.shazamkit.models.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.metrolist.shazamkit.models.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}

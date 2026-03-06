@@ -13,7 +13,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.DraggableState
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -25,7 +24,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
@@ -36,10 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -50,10 +45,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import com.metrolist.music.constants.BottomSheetAnimationSpec
-import com.metrolist.music.constants.BottomSheetSoftAnimationSpec
-import com.metrolist.music.constants.MinMiniPlayerHeight
-import com.metrolist.music.constants.MiniPlayerHeight
 import com.metrolist.music.constants.NavigationBarAnimationSpec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -70,7 +61,7 @@ fun BottomSheet(
     background: @Composable (BoxScope.() -> Unit) = { },
     onDismiss: (() -> Unit)? = null,
     collapsedContent: @Composable BoxScope.() -> Unit,
-    collapsedBackgroundColor: Color = Color.Transparent,
+    isExpandable: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val density = LocalDensity.current
@@ -94,7 +85,8 @@ fun BottomSheet(
                     .coerceAtLeast(0f)
                 translationY = y
             }
-            .pointerInput(state) {
+            .pointerInput(state, isExpandable) {
+                if (!isExpandable) return@pointerInput
                 val velocityTracker = VelocityTracker()
 
                 detectVerticalDragGestures(
@@ -135,32 +127,19 @@ fun BottomSheet(
             )
         }
 
-        // collapsed content
-        if (!state.isExpanded) {
-            // startY must be < state.collapsedBound
-            val startY = with(density) { (MiniPlayerHeight + MinMiniPlayerHeight - 1.dp).toPx() }
-            val colors = mutableListOf(collapsedBackgroundColor, Color.Transparent)
-            // no visible gradient if no bottom content to hide it
-            if (MiniPlayerHeight + MinMiniPlayerHeight >= state.collapsedBound) {
-                colors[1] = collapsedBackgroundColor
-            }
+        if (!state.isExpanded && (onDismiss == null || !state.isDismissed)) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .graphicsLayer {
                         alpha = 1f - (state.progress * 4).coerceAtMost(1f)
-                    }
-                    .clickable(
-                        onClick = state::expandSoft
-                    )
-                    .fillMaxWidth()
-                    .height(state.collapsedBound)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = colors,
-                            startY = startY,
-                        )
-                    ),
-                content = collapsedContent
+                    }.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { if (isExpandable) state.expandSoft() },
+                    ).fillMaxWidth()
+                    .height(state.collapsedBound),
+                content = collapsedContent,
             )
         }
     }
@@ -213,19 +192,19 @@ class BottomSheetState(
     }
 
     private fun collapse() {
-        collapse(BottomSheetAnimationSpec)
+        collapse(SpringSpec())
     }
 
     private fun expand() {
-        expand(BottomSheetAnimationSpec)
+        expand(SpringSpec())
     }
 
     fun collapseSoft() {
-        collapse(BottomSheetSoftAnimationSpec)
+        collapse(spring(stiffness = Spring.StiffnessMediumLow))
     }
 
     fun expandSoft() {
-        expand(BottomSheetSoftAnimationSpec)
+        expand(spring(stiffness = Spring.StiffnessMediumLow))
     }
 
     fun dismiss() {

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -420,6 +419,53 @@ fun StatsScreen(
                         modifier = Modifier.animateItem(),
                     )
 
+                if (mostPlayedAlbums.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier.animateItem(),
+                    ) {
+                        itemsIndexed(
+                            items = mostPlayedAlbums,
+                            key = { _, album -> album.id },
+                        ) { index, album ->
+                            LocalAlbumsGrid(
+                                title = "${index + 1}. ${album.album.title}",
+                                subtitle =
+                                joinByBullet(
+                                    pluralStringResource(
+                                        R.plurals.n_time,
+                                        album.songCountListened ?: 0,
+                                        album.songCountListened ?: 0
+                                    ),
+                                    makeTimeString(album.timeListened),
+                                ),
+                                thumbnailUrl = album.album.thumbnailUrl,
+                                isActive = album.id == mediaMetadata?.album?.id,
+                                isPlaying = isPlaying,
+                                modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            navController.navigate("album/${album.id}")
+                                        },
+                                        onLongClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            menuState.show {
+                                                AlbumMenu(
+                                                    originalAlbum = album,
+                                                    navController = navController,
+                                                    onDismiss = menuState::dismiss,
+                                                )
+                                            }
+                                        },
+                                    )
+                                    .animateItem(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
                     if (mostPlayedAlbums.isNotEmpty()) {
                         LazyRow(
                             modifier = Modifier.animateItem(),

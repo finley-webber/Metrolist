@@ -38,12 +38,16 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.innertube.models.ArtistItem
+import com.metrolist.innertube.models.EpisodeItem
 import com.metrolist.innertube.models.PlaylistItem
+import com.metrolist.innertube.models.PodcastItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.GridItemSize
+import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.GridThumbnailHeight
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.queues.YouTubeQueue
@@ -59,6 +63,7 @@ import com.metrolist.music.ui.menu.YouTubeArtistMenu
 import com.metrolist.music.ui.menu.YouTubePlaylistMenu
 import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.ui.utils.backToMain
+import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.viewmodels.ArtistItemsViewModel
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -77,6 +82,7 @@ fun ArtistItemsScreen(
     val lazyListState = rememberLazyListState()
     val lazyGridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
+    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     val title by viewModel.title.collectAsState()
     val itemsPage by viewModel.itemsPage.collectAsState()
@@ -158,6 +164,20 @@ fun ArtistItemsScreen(
                                                 coroutineScope = coroutineScope,
                                                 onDismiss = menuState::dismiss,
                                             )
+
+                                        is PodcastItem ->
+                                            YouTubePlaylistMenu(
+                                                playlist = item.asPlaylistItem(),
+                                                coroutineScope = coroutineScope,
+                                                onDismiss = menuState::dismiss,
+                                            )
+
+                                        is EpisodeItem ->
+                                            YouTubeSongMenu(
+                                                song = item.asSongItem(),
+                                                navController = navController,
+                                                onDismiss = menuState::dismiss,
+                                            )
                                     }
                                 }
                             },
@@ -188,6 +208,19 @@ fun ArtistItemsScreen(
                                 is AlbumItem -> navController.navigate("album/${item.id}")
                                 is ArtistItem -> navController.navigate("artist/${item.id}")
                                 is PlaylistItem -> navController.navigate("online_playlist/${item.id}")
+                                is PodcastItem -> navController.navigate("online_podcast/${item.id}")
+                                is EpisodeItem -> {
+                                    if (item.id == mediaMetadata?.id) {
+                                        playerConnection.togglePlayPause()
+                                    } else {
+                                        playerConnection.playQueue(
+                                            YouTubeQueue(
+                                                item.endpoint ?: WatchEndpoint(videoId = item.id),
+                                                item.toMediaMetadata()
+                                            ),
+                                        )
+                                    }
+                                }
                             }
                         },
                 )
@@ -206,7 +239,7 @@ fun ArtistItemsScreen(
     } else {
         LazyVerticalGrid(
             state = lazyGridState,
-            columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
+            columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues()
         ) {
             items(
@@ -237,6 +270,13 @@ fun ArtistItemsScreen(
                                     is AlbumItem -> navController.navigate("album/${item.id}")
                                     is ArtistItem -> navController.navigate("artist/${item.id}")
                                     is PlaylistItem -> navController.navigate("online_playlist/${item.id}")
+                                    is PodcastItem -> navController.navigate("online_podcast/${item.id}")
+                                    is EpisodeItem -> playerConnection.playQueue(
+                                        YouTubeQueue(
+                                            item.endpoint ?: WatchEndpoint(videoId = item.id),
+                                            item.toMediaMetadata()
+                                        )
+                                    )
                                 }
                             },
                             onLongClick = {
@@ -263,6 +303,18 @@ fun ArtistItemsScreen(
                                         is PlaylistItem -> YouTubePlaylistMenu(
                                             playlist = item,
                                             coroutineScope = coroutineScope,
+                                            onDismiss = menuState::dismiss
+                                        )
+
+                                        is PodcastItem -> YouTubePlaylistMenu(
+                                            playlist = item.asPlaylistItem(),
+                                            coroutineScope = coroutineScope,
+                                            onDismiss = menuState::dismiss
+                                        )
+
+                                        is EpisodeItem -> YouTubeSongMenu(
+                                            song = item.asSongItem(),
+                                            navController = navController,
                                             onDismiss = menuState::dismiss
                                         )
                                     }

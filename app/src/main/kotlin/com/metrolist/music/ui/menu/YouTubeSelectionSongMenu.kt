@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -48,9 +48,8 @@ import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.ui.component.DefaultDialog
-import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.Material3MenuGroup
-import kotlinx.coroutines.Dispatchers
+import com.metrolist.music.ui.component.Material3MenuItemData
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 
@@ -70,6 +69,9 @@ fun YouTubeSelectionSongMenu(
     var showChoosePlaylistDialog by rememberSaveable {
         mutableStateOf(false)
     }
+
+    val listenTogetherManager = com.metrolist.music.LocalListenTogetherManager.current
+    val isGuest = listenTogetherManager?.isInRoom == true && listenTogetherManager.isHost == false
 
     var downloadState by remember {
         mutableIntStateOf(Download.STATE_STOPPED)
@@ -129,7 +131,7 @@ fun YouTubeSelectionSongMenu(
                     song = com.metrolist.music.db.entities.SongEntity(
                         id = metadata.id,
                         title = metadata.title,
-                        duration = metadata.duration ?: -1,
+                        duration = metadata.duration,
                         thumbnailUrl = metadata.thumbnailUrl,
                         albumId = metadata.album?.id,
                         albumName = metadata.album?.title,
@@ -208,13 +210,13 @@ fun YouTubeSelectionSongMenu(
             start = 8.dp,
             top = 8.dp,
             end = 8.dp,
-            bottom = 8.dp + WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding(),
+            bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
         ),
     ) {
         item {
             Material3MenuGroup(
-                listOf(
-                    Material3MenuItemData(
+                listOfNotNull(
+                    if (!isGuest) Material3MenuItemData(
                         icon = { Icon(painterResource(R.drawable.play), null) },
                         title = { Text(stringResource(R.string.play)) },
                         onClick = {
@@ -227,8 +229,8 @@ fun YouTubeSelectionSongMenu(
                             clearAction()
                             onDismiss()
                         },
-                    ),
-                    Material3MenuItemData(
+                    ) else null,
+                    if (!isGuest) Material3MenuItemData(
                         icon = { Icon(painterResource(R.drawable.shuffle), null) },
                         title = { Text(stringResource(R.string.shuffle)) },
                         onClick = {
@@ -241,8 +243,8 @@ fun YouTubeSelectionSongMenu(
                             clearAction()
                             onDismiss()
                         },
-                    ),
-                    Material3MenuItemData(
+                    ) else null,
+                    if (!isGuest) Material3MenuItemData(
                         icon = { Icon(painterResource(R.drawable.queue_music), null) },
                         title = { Text(stringResource(R.string.add_to_queue)) },
                         onClick = {
@@ -250,7 +252,7 @@ fun YouTubeSelectionSongMenu(
                             clearAction()
                             onDismiss()
                         },
-                    ),
+                    ) else null,
                     Material3MenuItemData(
                         icon = { Icon(painterResource(R.drawable.playlist_add), null) },
                         title = { Text(stringResource(R.string.add_to_playlist)) },
@@ -258,56 +260,55 @@ fun YouTubeSelectionSongMenu(
                             showChoosePlaylistDialog = true
                         },
                     ),
-                    // COMMENTED OUT: Library add/remove option
-                    // Material3MenuItemData(
-                    //     title = {
-                    //         Text(
-                    //             text = stringResource(
-                    //                 if (allInLibrary) R.string.remove_from_library else R.string.add_to_library
-                    //             )
-                    //         )
-                    //     },
-                    //     icon = {
-                    //         Icon(
-                    //             painter = painterResource(
-                    //                 if (allInLibrary) R.drawable.library_add_check else R.drawable.library_add
-                    //             ),
-                    //             contentDescription = null,
-                    //         )
-                    //     },
-                    //     onClick = {
-                    //         if (allInLibrary) {
-                    //             database.query {
-                    //                 songSelection.forEach { song ->
-                    //                     inLibrary(song.id, null)
-                    //                 }
-                    //             }
-                    //             coroutineScope.launch {
-                    //                 val tokens = songSelection.mapNotNull { it.toMediaMetadata().libraryRemoveToken }
-                    //                 tokens.chunked(20).forEach {
-                    //                     YouTube.feedback(it)
-                    //                 }
-                    //             }
-                    //         } else {
-                    //             database.transaction {
-                    //                 songSelection.forEach { song ->
-                    //                     insert(song.toMediaMetadata())
-                    //                     inLibrary(song.id, LocalDateTime.now())
-                    //                 }
-                    //             }
-                    //             coroutineScope.launch {
-                    //                 val tokens = songSelection.filter { song ->
-                    //                     song.toMediaMetadata().inLibrary == null
-                    //                 }.mapNotNull { it.toMediaMetadata().libraryAddToken }
-                    //                 tokens.chunked(20).forEach {
-                    //                     YouTube.feedback(it)
-                    //                 }
-                    //             }
-                    //         }
-                    //         clearAction()
-                    //         onDismiss()
-                    //     }
-                    // ),
+                    Material3MenuItemData(
+                        title = {
+                            Text(
+                                text = stringResource(
+                                    if (allInLibrary) R.string.remove_from_library else R.string.add_to_library
+                                )
+                            )
+                        },
+                        icon = {
+                            Icon(
+                                painter = painterResource(
+                                    if (allInLibrary) R.drawable.library_add_check else R.drawable.library_add
+                                ),
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            if (allInLibrary) {
+                                database.query {
+                                    songSelection.forEach { song ->
+                                        inLibrary(song.id, null)
+                                    }
+                                }
+                                coroutineScope.launch {
+                                    // Use the new reliable method that fetches fresh tokens
+                                    songSelection.forEach { song ->
+                                        YouTube.toggleSongLibrary(song.id, false)
+                                    }
+                                }
+                            } else {
+                                database.transaction {
+                                    songSelection.forEach { song ->
+                                        insert(song.toMediaMetadata())
+                                        inLibrary(song.id, LocalDateTime.now())
+                                    }
+                                }
+                                coroutineScope.launch {
+                                    // Use the new reliable method that fetches fresh tokens
+                                    songSelection.filter { song ->
+                                        song.toMediaMetadata().inLibrary == null
+                                    }.forEach { song ->
+                                        YouTube.toggleSongLibrary(song.id, true)
+                                    }
+                                }
+                            }
+                            clearAction()
+                            onDismiss()
+                        }
+                    ),
                     when (downloadState) {
                         Download.STATE_COMPLETED -> {
                             Material3MenuItemData(
@@ -398,7 +399,7 @@ fun YouTubeSelectionSongMenu(
                                         val songEntity = com.metrolist.music.db.entities.SongEntity(
                                             id = metadata.id,
                                             title = metadata.title,
-                                            duration = metadata.duration ?: -1,
+                                            duration = metadata.duration,
                                             thumbnailUrl = metadata.thumbnailUrl,
                                             albumId = metadata.album?.id,
                                             albumName = metadata.album?.title,

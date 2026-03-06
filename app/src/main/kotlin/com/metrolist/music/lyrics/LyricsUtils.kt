@@ -8,14 +8,26 @@ package com.metrolist.music.lyrics
 import android.text.format.DateUtils
 import com.atilika.kuromoji.ipadic.Tokenizer
 import com.github.promeg.pinyinhelper.Pinyin
-import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 @Suppress("RegExpRedundantEscape")
 object LyricsUtils {
     val LINE_REGEX = "((\\[\\d\\d:\\d\\d\\.\\d{2,3}\\] ?)+)(.+)".toRegex()
     val TIME_REGEX = "\\[(\\d\\d):(\\d\\d)\\.(\\d{2,3})\\]".toRegex()
+
+    fun cleanTitleForSearch(title: String): String {
+        return title.replace(Regex("\\s*[(\\[].*?[)\\]]"), "").trim()
+    }
+
+    // Regex for rich sync format: [MM:SS.mm]<MM:SS.mm> word <MM:SS.mm> word ...
+    private val RICH_SYNC_LINE_REGEX = "\\[(\\d{1,2}):(\\d{2})\\.(\\d{2,3})\\](.+)".toRegex()
+    private val RICH_SYNC_WORD_REGEX = "<(\\d{1,2}):(\\d{2})\\.(\\d{2,3})>\\s*([^<]+)".toRegex()
+
+    // Regex for agent and background markers
+    private val AGENT_REGEX = "\\{agent:([^}]+)\\}".toRegex()
+    private val BACKGROUND_REGEX = "^\\{bg\\}".toRegex()
 
     private val KANA_ROMAJI_MAP: Map<String, String> = mapOf(
         // Digraphs (Yōon - combinations like kya, sho)
@@ -96,6 +108,45 @@ object LyricsUtils {
             "ᇂ" to "t", "ᇂᄋ" to "h", "ᇂᄂ" to "nn", "ᇂᄅ" to "nn", "ᇂᄆ" to "mm", "ᇂᄒ" to "t",
             "ᇂᄀ" to "k"
         )
+    )
+
+    private val DEVANAGARI_ROMAJI_MAP: Map<String, String> = mapOf(
+        "अ" to "a", "आ" to "aa", "इ" to "i", "ई" to "ee", "उ" to "u", "ऊ" to "oo",
+        "ऋ" to "ri", "ए" to "e", "ऐ" to "ai", "ओ" to "o", "औ" to "au",
+        "क" to "k", "ख" to "kh", "ग" to "g", "घ" to "gh", "ङ" to "ng",
+        "च" to "ch", "छ" to "chh", "ज" to "j", "झ" to "jh", "ञ" to "ny",
+        "ट" to "t", "ठ" to "th", "ड" to "d", "ढ" to "dh", "ण" to "n",
+        "त" to "t", "थ" to "th", "द" to "d", "ध" to "dh", "न" to "n",
+        "प" to "p", "फ" to "ph", "ब" to "b", "भ" to "bh", "म" to "m",
+        "य" to "y", "र" to "r", "ल" to "l", "व" to "v",
+        "श" to "sh", "ष" to "sh", "स" to "s", "ह" to "h",
+        "क्ष" to "ksh", "त्र" to "tr", "ज्ञ" to "gy", "श्र" to "shr",
+        "ा" to "aa", "ि" to "i", "ी" to "ee", "ु" to "u", "ू" to "oo",
+        "ृ" to "ri", "े" to "e", "ै" to "ai", "ो" to "o", "ौ" to "au",
+        "ं" to "n", "ः" to "h", "ँ" to "n", "़" to "", "्" to "",
+        "०" to "0", "१" to "1", "२" to "2", "३" to "3", "४" to "4",
+        "५" to "5", "६" to "6", "७" to "7", "८" to "8", "९" to "9",
+        "ॐ" to "Om", "ऽ" to "",
+        "क़" to "q", "ख़" to "kh", "ग़" to "g", "ज़" to "z", "ड़" to "r", "ढ़" to "rh", "फ़" to "f", "य़" to "y",
+        // Decomposed characters with Nukta
+        "क\u093C" to "q", "ख\u093C" to "kh", "ग\u093C" to "g", "ज\u093C" to "z", "ड\u093C" to "r", "ढ\u093C" to "rh", "फ\u093C" to "f", "य\u093C" to "y"
+    )
+
+    private val GURMUKHI_ROMAJI_MAP: Map<String, String> = mapOf(
+        "ੳ" to "o", "ਅ" to "a", "ੲ" to "e", "ਸ" to "s", "ਹ" to "h",
+        "ਕ" to "k", "ਖ" to "kh", "ਗ" to "g", "ਘ" to "gh", "ਙ" to "ng",
+        "ਚ" to "ch", "ਛ" to "chh", "ਜ" to "j", "ਝ" to "jh", "ਞ" to "ny",
+        "ਟ" to "t", "ਠ" to "th", "ਡ" to "d", "ਢ" to "dh", "ਣ" to "n",
+        "ਤ" to "t", "ਥ" to "th", "ਦ" to "d", "ਧ" to "dh", "ਨ" to "n",
+        "ਪ" to "p", "ਫ" to "ph", "ਬ" to "b", "ਭ" to "bh", "ਮ" to "m",
+        "ਯ" to "y", "ਰ" to "r", "ਲ" to "l", "ਵ" to "v", "ੜ" to "r",
+        "ਸ਼" to "sh", "ਖ਼" to "kh", "ਗ਼" to "g", "ਜ਼" to "z", "ਫ਼" to "f", "ਲ਼" to "l",
+        "ਾ" to "aa", "ਿ" to "i", "ੀ" to "ee", "ੁ" to "u", "ੂ" to "oo",
+        "ੇ" to "e", "ੈ" to "ai", "ੋ" to "o", "ੌ" to "au",
+        "ੰ" to "n", "ਂ" to "n", "ੱ" to "", "੍" to "", "਼" to "",
+        "ੴ" to "Ek Onkar",
+        "੦" to "0", "੧" to "1", "੨" to "2", "੩" to "3", "੪" to "4",
+        "੫" to "5", "੬" to "6", "੭" to "7", "੮" to "8", "੯" to "9"
     )
 
     private val GENERAL_CYRILLIC_ROMAJI_MAP: Map<String, String> = mapOf(
@@ -273,10 +324,175 @@ object LyricsUtils {
         Tokenizer()
     }
 
+    private val HEX_ENTITY_REGEX = "&#x([0-9a-fA-F]+);".toRegex()
+    private val DEC_ENTITY_REGEX = "&#(\\d+);".toRegex()
+
+    private fun decodeHtmlEntities(text: String): String =
+        text
+            .replace(HEX_ENTITY_REGEX) { match ->
+                match.groupValues[1].toIntOrNull(16)
+                    ?.takeIf { it in 0..0x10FFFF }
+                    ?.let { String(Character.toChars(it)) }
+                    ?: match.value
+            }
+            .replace(DEC_ENTITY_REGEX) { match ->
+                match.groupValues[1].toIntOrNull()
+                    ?.takeIf { it in 0..0x10FFFF }
+                    ?.let { String(Character.toChars(it)) }
+                    ?: match.value
+            }
+            .replace("&apos;", "'")
+            .replace("&quot;", "\"")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+
     fun parseLyrics(lyrics: String): List<LyricsEntry> {
-        val lines = lyrics.lines()
+        // Unescape JSON string if needed
+        val unescapedLyrics = lyrics
+            .trim()
+            .removePrefix("\"")
+            .removeSuffix("\"")
+            .replace("\\\\", "\\")
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\t", "\t")
+
+        // Decode HTML entities (e.g. &#x27; -> ', &amp; -> &)
+        val decodedLyrics = decodeHtmlEntities(unescapedLyrics)
+
+        val lines = decodedLyrics.lines()
+            .filter { it.isNotBlank() && !it.trim().startsWith("[offset:") }
+
+        // Check if this is rich sync format (contains <MM:SS.mm> patterns)
+        val isRichSync = lines.any { line ->
+            RICH_SYNC_LINE_REGEX.matches(line.trim()) &&
+            RICH_SYNC_WORD_REGEX.containsMatchIn(line)
+        }
+
+        return if (isRichSync) {
+            parseRichSyncLyrics(lines)
+        } else {
+            parseStandardLyrics(lines)
+        }
+    }
+
+    /**
+     * Parse rich sync lyrics format: [MM:SS.mm]<MM:SS.mm> word <MM:SS.mm> word ...
+     * This format provides word-by-word timing for karaoke-style highlighting
+     */
+    private fun parseRichSyncLyrics(lines: List<String>): List<LyricsEntry> {
         val result = mutableListOf<LyricsEntry>()
-        
+
+        lines.forEachIndexed { index, line ->
+            val matchResult = RICH_SYNC_LINE_REGEX.matchEntire(line.trim())
+            if (matchResult != null) {
+                val minutes = matchResult.groupValues[1].toLongOrNull() ?: 0L
+                val seconds = matchResult.groupValues[2].toLongOrNull() ?: 0L
+                val centiseconds = matchResult.groupValues[3].toLongOrNull() ?: 0L
+
+                // Convert to milliseconds
+                val millisPart = if (matchResult.groupValues[3].length == 3) centiseconds else centiseconds * 10
+                val lineTimeMs = minutes * DateUtils.MINUTE_IN_MILLIS + seconds * DateUtils.SECOND_IN_MILLIS + millisPart
+
+                var content = matchResult.groupValues[4].trimStart()
+
+                // Parse agent marker {agent:v1}
+                val agentMatch = AGENT_REGEX.find(content)
+                val agent = agentMatch?.groupValues?.get(1)
+                if (agentMatch != null) {
+                    content = content.replaceFirst(AGENT_REGEX, "")
+                }
+
+                // Parse background marker {bg}
+                val isBackground = BACKGROUND_REGEX.containsMatchIn(content)
+                if (isBackground) {
+                    content = content.replaceFirst(BACKGROUND_REGEX, "")
+                }
+
+                // Parse word-level timestamps from content
+                val wordTimings = parseRichSyncWords(content, index, lines)
+
+                // Extract plain text (remove all <MM:SS.mm> tags)
+                val plainText = content.replace(Regex("<\\d{1,2}:\\d{2}\\.\\d{2,3}>\\s*"), "").trim()
+
+                if (plainText.isNotBlank()) {
+                    result.add(LyricsEntry(lineTimeMs, plainText, wordTimings, agent = agent, isBackground = isBackground))
+                }
+            }
+        }
+
+        return result.sorted()
+    }
+
+    /**
+     * Parse word timestamps from rich sync content
+     * Format: <MM:SS.mm> word <MM:SS.mm> word ...
+     */
+    private fun parseRichSyncWords(content: String, currentIndex: Int, allLines: List<String>): List<WordTimestamp>? {
+        val wordMatches = RICH_SYNC_WORD_REGEX.findAll(content).toList()
+
+        if (wordMatches.isEmpty()) return null
+
+        val wordTimings = mutableListOf<WordTimestamp>()
+
+        wordMatches.forEachIndexed { index, match ->
+            val minutes = match.groupValues[1].toLongOrNull() ?: 0L
+            val seconds = match.groupValues[2].toLongOrNull() ?: 0L
+            val fraction = match.groupValues[3].toLongOrNull() ?: 0L
+
+            // Convert to seconds (Double)
+            val fractionPart = if (match.groupValues[3].length == 3) fraction / 1000.0 else fraction / 100.0
+            val startTimeSeconds = minutes * 60.0 + seconds + fractionPart
+
+            val wordText = match.groupValues[4].trim()
+
+            // Calculate end time: use next word's start time, or estimate from next line
+            val endTimeSeconds = if (index < wordMatches.size - 1) {
+                val nextMatch = wordMatches[index + 1]
+                val nextMinutes = nextMatch.groupValues[1].toLongOrNull() ?: 0L
+                val nextSeconds = nextMatch.groupValues[2].toLongOrNull() ?: 0L
+                val nextFraction = nextMatch.groupValues[3].toLongOrNull() ?: 0L
+                val nextFractionPart = if (nextMatch.groupValues[3].length == 3) nextFraction / 1000.0 else nextFraction / 100.0
+                nextMinutes * 60.0 + nextSeconds + nextFractionPart
+            } else {
+                // For last word, try to get next line's start time or add a default duration
+                val nextLineTime = getNextLineStartTime(currentIndex, allLines)
+                nextLineTime ?: (startTimeSeconds + 0.5) // Default 500ms duration for last word
+            }
+
+            if (wordText.isNotBlank()) {
+                wordTimings.add(WordTimestamp(wordText, startTimeSeconds, endTimeSeconds))
+            }
+        }
+
+        return if (wordTimings.isNotEmpty()) wordTimings else null
+    }
+
+    /**
+     * Get the start time of the next line for calculating the last word's end time
+     */
+    private fun getNextLineStartTime(currentIndex: Int, allLines: List<String>): Double? {
+        if (currentIndex + 1 >= allLines.size) return null
+
+        val nextLine = allLines[currentIndex + 1].trim()
+        val matchResult = RICH_SYNC_LINE_REGEX.matchEntire(nextLine) ?: return null
+
+        val minutes = matchResult.groupValues[1].toLongOrNull() ?: return null
+        val seconds = matchResult.groupValues[2].toLongOrNull() ?: return null
+        val fraction = matchResult.groupValues[3].toLongOrNull() ?: 0L
+
+        val fractionPart = if (matchResult.groupValues[3].length == 3) fraction / 1000.0 else fraction / 100.0
+        return minutes * 60.0 + seconds + fractionPart
+    }
+
+    /**
+     * Parse standard synced lyrics format: [MM:SS.mm] text
+     */
+    private fun parseStandardLyrics(lines: List<String>): List<LyricsEntry> {
+        val result = mutableListOf<LyricsEntry>()
+
         var i = 0
         while (i < lines.size) {
             val line = lines[i]
@@ -289,10 +505,10 @@ object LyricsUtils {
                             parseWordTimestamps(nextLine.trim().removeSurrounding("<", ">"))
                         } else null
                     } else null
-                    
+
                     if (wordTimestamps != null) {
                         result.addAll(entries.map { entry ->
-                            LyricsEntry(entry.time, entry.text, wordTimestamps)
+                            LyricsEntry(entry.time, entry.text, wordTimestamps, agent = entry.agent, isBackground = entry.isBackground)
                         })
                     } else {
                         result.addAll(entries)
@@ -303,7 +519,7 @@ object LyricsUtils {
         }
         return result.sorted()
     }
-    
+
     private fun parseWordTimestamps(data: String): List<WordTimestamp>? {
         if (data.isBlank()) return null
         return try {
@@ -328,8 +544,21 @@ object LyricsUtils {
         }
         val matchResult = LINE_REGEX.matchEntire(line.trim()) ?: return null
         val times = matchResult.groupValues[1]
-        val text = matchResult.groupValues[3]
+        var text = matchResult.groupValues[3]
         val timeMatchResults = TIME_REGEX.findAll(times)
+
+        // Parse agent marker {agent:v1}
+        val agentMatch = AGENT_REGEX.find(text)
+        val agent = agentMatch?.groupValues?.get(1)
+        if (agentMatch != null) {
+            text = text.replaceFirst(AGENT_REGEX, "")
+        }
+
+        // Parse background marker {bg}
+        val isBackground = BACKGROUND_REGEX.containsMatchIn(text)
+        if (isBackground) {
+            text = text.replaceFirst(BACKGROUND_REGEX, "")
+        }
 
         return timeMatchResults
             .map { timeMatchResult ->
@@ -341,7 +570,7 @@ object LyricsUtils {
                     mil *= 10
                 }
                 val time = min * DateUtils.MINUTE_IN_MILLIS + sec * DateUtils.SECOND_IN_MILLIS + mil
-                LyricsEntry(time, text, words)
+                LyricsEntry(time, text, words, agent = agent, isBackground = isBackground)
             }.toList()
     }
 
@@ -901,6 +1130,84 @@ object LyricsUtils {
         val cjkCharCount = text.count { char -> char in '\u4E00'..'\u9FFF' }
         val hiraganaKatakanaCount = text.count { char -> (char in '\u3040'..'\u309F') || (char in '\u30A0'..'\u30FF') }
         return cjkCharCount > 0 && (hiraganaKatakanaCount.toDouble() / text.length.toDouble()) < 0.1
+    }
+
+    fun isHindi(text: String): Boolean {
+        return text.any { char ->
+            char in '\u0900'..'\u097F'
+        }
+    }
+
+    suspend fun romanizeHindi(text: String): String = withContext(Dispatchers.Default) {
+        val sb = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            var consumed = false
+            // Check for 2-character sequences (e.g. char + nukta)
+            if (i + 1 < text.length) {
+                val twoCharCandidate = text.substring(i, i + 2)
+                val mappedTwoChar = DEVANAGARI_ROMAJI_MAP[twoCharCandidate]
+                if (mappedTwoChar != null) {
+                    sb.append(mappedTwoChar)
+                    i += 2
+                    consumed = true
+                }
+            }
+
+            if (!consumed) {
+                val charStr = text[i].toString()
+                sb.append(DEVANAGARI_ROMAJI_MAP[charStr] ?: charStr)
+                i += 1
+            }
+        }
+        sb.toString()
+    }
+
+    fun isPunjabi(text: String): Boolean {
+        return text.any { char ->
+            char in '\u0A00'..'\u0A7F'
+        }
+    }
+
+    suspend fun romanizePunjabi(text: String): String = withContext(Dispatchers.Default) {
+        val sb = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            val char = text[i]
+            var consumed = false
+
+            // Check for Adhak (Gemination)
+            if (char == '\u0A71') {
+                 // Double next consonant if possible
+                 if (i + 1 < text.length) {
+                     val nextCharStr = text[i+1].toString()
+                     val nextMapped = GURMUKHI_ROMAJI_MAP[nextCharStr]
+                     if (nextMapped != null && nextMapped.isNotEmpty()) {
+                         sb.append(nextMapped[0])
+                     }
+                 }
+                 i++
+                 continue
+            }
+
+            // Check for 2-character sequences (e.g. char + nukta)
+            if (i + 1 < text.length) {
+                val twoCharCandidate = text.substring(i, i + 2)
+                val mappedTwoChar = GURMUKHI_ROMAJI_MAP[twoCharCandidate]
+                if (mappedTwoChar != null) {
+                    sb.append(mappedTwoChar)
+                    i += 2
+                    consumed = true
+                }
+            }
+
+            if (!consumed) {
+                val str = char.toString()
+                sb.append(GURMUKHI_ROMAJI_MAP[str] ?: str)
+                i++
+            }
+        }
+        sb.toString()
     }
 
     private fun isCyrillicVowel(char: Char): Boolean {

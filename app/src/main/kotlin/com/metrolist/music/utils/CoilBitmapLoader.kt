@@ -21,22 +21,38 @@ import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.guava.future
+import timber.log.Timber
 
 class CoilBitmapLoader(
     private val context: Context,
     private val scope: CoroutineScope,
 ) : BitmapLoader {
+    
     override fun supportsMimeType(mimeType: String): Boolean = mimeType.startsWith("image/")
+
+    private fun createFallbackBitmap(): Bitmap =
+        createBitmap(64, 64)
+
+    private fun Bitmap.copyIfNeeded(): Bitmap {
+        return if (isRecycled) {
+            createFallbackBitmap()
+        } else {
+            try {
+                copy(Bitmap.Config.ARGB_8888, false) ?: createFallbackBitmap()
+            } catch (e: Exception) {
+                createFallbackBitmap()
+            }
+        }
+    }
 
     override fun decodeBitmap(data: ByteArray): ListenableFuture<Bitmap> =
         scope.future(Dispatchers.IO) {
             try {
-                BitmapFactory.decodeByteArray(data, 0, data.size)
-                    ?: createBitmap(64, 64) // Return fallback bitmap instead of throwing error
+                val bitmap = BitmapFactory.decodeByteArray(data, 0, data.size)
+                bitmap?.copyIfNeeded() ?: createFallbackBitmap()
             } catch (e: Exception) {
-                // Handle bitmap decode errors gracefully
-                android.util.Log.w("CoilBitmapLoader", "Failed to decode bitmap data", e)
-                createBitmap(64, 64) // Return fallback bitmap
+                Timber.tag("CoilBitmapLoader").w(e, "Failed to decode bitmap data")
+                createFallbackBitmap()
             }
         }
 
@@ -49,16 +65,17 @@ class CoilBitmapLoader(
 
             val result = context.imageLoader.execute(request)
 
-            // In case of error, returns an empty bitmap
             when (result) {
                 is ErrorResult -> {
-                    createBitmap(64, 64)
+                    createFallbackBitmap()
                 }
                 is SuccessResult -> {
                     try {
-                        result.image.toBitmap()
+                        val bitmap = result.image.toBitmap()
+                        bitmap.copyIfNeeded()
                     } catch (e: Exception) {
-                        createBitmap(64, 64)
+                        Timber.tag("CoilBitmapLoader").w(e, "Failed to convert image to bitmap")
+                        createFallbackBitmap()
                     }
                 }
             }

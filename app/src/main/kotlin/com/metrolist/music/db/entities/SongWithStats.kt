@@ -26,6 +26,8 @@ data class SongWithStats(
     )
     val artists: List<ArtistEntity>,
     val thumbnailUrl: String,
+    val artistName: String?,
     val songCountListened: Int,
     val timeListened: Long?,
+    val isVideo: Boolean = false,
 )

@@ -22,13 +22,17 @@ package com.metrolist.music.ui.screens
  import androidx.compose.runtime.rememberCoroutineScope
  import androidx.compose.ui.Modifier
  import androidx.compose.ui.res.painterResource
- import androidx.compose.ui.res.stringResource
  import androidx.compose.ui.unit.dp
  import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
  import androidx.navigation.NavController
+ import com.metrolist.innertube.models.AlbumItem
+ import com.metrolist.innertube.models.ArtistItem
+ import com.metrolist.innertube.models.PlaylistItem
  import com.metrolist.music.LocalPlayerAwareWindowInsets
  import com.metrolist.music.LocalPlayerConnection
  import com.metrolist.music.R
+ import com.metrolist.music.constants.GridItemSize
+ import com.metrolist.music.constants.GridItemsSizeKey
  import com.metrolist.music.constants.GridThumbnailHeight
  import com.metrolist.music.ui.component.IconButton
  import com.metrolist.music.ui.component.LocalMenuState
@@ -39,12 +43,10 @@ package com.metrolist.music.ui.screens
  import com.metrolist.music.ui.menu.YouTubeArtistMenu
  import com.metrolist.music.ui.menu.YouTubePlaylistMenu
  import com.metrolist.music.ui.utils.backToMain
+ import com.metrolist.music.utils.rememberEnumPreference
  import com.metrolist.music.viewmodels.BrowseViewModel
- import com.metrolist.innertube.models.AlbumItem
- import com.metrolist.innertube.models.ArtistItem
- import com.metrolist.innertube.models.PlaylistItem
- 
- @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
  @Composable
  fun BrowseScreen(
     navController: NavController,
@@ -61,9 +63,10 @@ package com.metrolist.music.ui.screens
      val items by viewModel.items.collectAsState()
  
      val coroutineScope = rememberCoroutineScope()
+     val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
  
      LazyVerticalGrid(
-         columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
+         columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
          contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues()
      ) {
          items?.let { items ->

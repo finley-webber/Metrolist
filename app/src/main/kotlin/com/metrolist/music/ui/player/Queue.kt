@@ -5,10 +5,8 @@
 
 package com.metrolist.music.ui.player
 
-import androidx.activity.compose.BackHandler
 import android.annotation.SuppressLint
-import android.text.format.Formatter
-import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -25,7 +23,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.material3.ripple
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,28 +38,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -77,9 +67,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -101,27 +91,27 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.fastForEachReversed
-import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.navigation.NavController
+import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.ListItemHeight
-import com.metrolist.music.constants.UseNewPlayerDesignKey
-import com.metrolist.music.constants.PlayerButtonsStyle
-import com.metrolist.music.constants.PlayerButtonsStyleKey
+import com.metrolist.music.constants.PlayerBackgroundStyle
 import com.metrolist.music.constants.QueueEditLockKey
+import com.metrolist.music.constants.SleepTimerFadeOutKey
+import com.metrolist.music.constants.UseNewPlayerDesignKey
+import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
 import com.metrolist.music.extensions.metadata
 import com.metrolist.music.extensions.move
 import com.metrolist.music.extensions.toggleRepeatMode
+import com.metrolist.music.listentogether.RoomRole
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.ui.component.ActionPromptDialog
 import com.metrolist.music.ui.component.BottomSheet
@@ -130,6 +120,7 @@ import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.component.MediaMetadataListItem
 import com.metrolist.music.ui.menu.PlayerMenu
+import com.metrolist.music.ui.menu.QueueMenu
 import com.metrolist.music.ui.menu.SelectionMediaMetadataMenu
 import com.metrolist.music.ui.utils.ShowMediaInfo
 import com.metrolist.music.utils.makeTimeString
@@ -141,7 +132,11 @@ import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import kotlin.math.roundToInt
-import com.metrolist.music.constants.PlayerBackgroundStyle
+import com.metrolist.music.constants.SleepTimerDefaultKey
+import com.metrolist.music.utils.dataStore
+import androidx.datastore.preferences.core.edit
+import android.widget.Toast
+
 
 @SuppressLint("UnrememberedMutableState")
 @OptIn(ExperimentalFoundationApi::class)
@@ -167,6 +162,11 @@ fun Queue(
     val menuState = LocalMenuState.current
     val bottomSheetPageState = LocalBottomSheetPageState.current
 
+    // Listen Together state (reactive)
+    val listenTogetherManager = LocalListenTogetherManager.current
+    val listenTogetherRoleState = listenTogetherManager?.role?.collectAsState(initial = com.metrolist.music.listentogether.RoomRole.NONE)
+    val isListenTogetherGuest = listenTogetherRoleState?.value == RoomRole.GUEST
+
     val playerConnection = LocalPlayerConnection.current ?: return
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
     val repeatMode by playerConnection.repeatMode.collectAsState()
@@ -179,8 +179,14 @@ fun Queue(
     val selectedSongs = remember { mutableStateListOf<MediaMetadata>() }
     val selectedItems = remember { mutableStateListOf<Timeline.Window>() }
 
-    // Cast state
-    val castHandler = playerConnection.service.castConnectionHandler
+    // Cast state - safely access castConnectionHandler to prevent crashes during service lifecycle changes
+    val castHandler = remember(playerConnection) {
+        try {
+            playerConnection.service.castConnectionHandler
+        } catch (e: Exception) {
+            null
+        }
+    }
     val isCasting by castHandler?.isCasting?.collectAsState() ?: remember { mutableStateOf(false) }
     val castIsPlaying by castHandler?.castIsPlaying?.collectAsState() ?: remember { mutableStateOf(false) }
 
@@ -209,8 +215,14 @@ fun Queue(
     val snackbarHostState = remember { SnackbarHostState() }
     var dismissJob: Job? by remember { mutableStateOf(null) }
 
+    val coroutineScope = rememberCoroutineScope()
     var showSleepTimerDialog by remember { mutableStateOf(false) }
-    var sleepTimerValue by remember { mutableFloatStateOf(30f) }
+    val sleepTimerDefault by rememberPreference(SleepTimerDefaultKey, 30f)
+    var sleepTimerValue by remember { mutableFloatStateOf(sleepTimerDefault) }
+    val sleepTimerStopAfterCurrentSongDefault by rememberPreference(SleepTimerStopAfterCurrentSongKey, false)
+    var sleepTimerStopAfterCurrentSong by remember { mutableStateOf(sleepTimerStopAfterCurrentSongDefault) }
+    val sleepTimerFadeOutDefault by rememberPreference(SleepTimerFadeOutKey, false)
+    var sleepTimerFadeOut by remember { mutableStateOf(sleepTimerFadeOutDefault) }
     val sleepTimerEnabled = remember(
         playerConnection.service.sleepTimer.triggerTime,
         playerConnection.service.sleepTimer.pauseWhenSongEnd
@@ -234,10 +246,10 @@ fun Queue(
 
     BottomSheet(
         state = state,
+        modifier = modifier,
         background = {
             Box(Modifier.fillMaxSize().background(Color.Unspecified))
         },
-        modifier = modifier,
         collapsedContent = {
             if (useNewPlayerDesign) {
                 // New design
@@ -257,11 +269,11 @@ fun Queue(
                     val iconSize = 24.dp
                     val queueShape = RoundedCornerShape(
                         topStart = 50.dp, bottomStart = 50.dp,
-                        topEnd = 5.dp, bottomEnd = 5.dp
+                        topEnd = 3.dp, bottomEnd = 3.dp
                     )
-                    val middleShape = RoundedCornerShape(5.dp)
+                    val middleShape = RoundedCornerShape(3.dp)
                     val repeatShape = RoundedCornerShape(
-                        topStart = 5.dp, bottomStart = 5.dp,
+                        topStart = 3.dp, bottomStart = 3.dp,
                         topEnd = 50.dp, bottomEnd = 50.dp
                     )
 
@@ -288,6 +300,7 @@ fun Queue(
                             }
                         },
                         isActive = sleepTimerEnabled,
+                        enabled = !isListenTogetherGuest,
                         shape = middleShape,
                         modifier = Modifier.size(buttonSize),
                         textButtonColor = textButtonColor,
@@ -301,8 +314,11 @@ fun Queue(
                     val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
                     PlayerQueueButton(
                         icon = R.drawable.shuffle,
-                        onClick = { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled },
+                        onClick = {
+                            playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled
+                        },
                         isActive = shuffleModeEnabled,
+                        enabled = !isListenTogetherGuest,
                         shape = middleShape,
                         modifier = Modifier.size(buttonSize),
                         textButtonColor = textButtonColor,
@@ -331,8 +347,11 @@ fun Queue(
                             Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
                             else -> R.drawable.repeat
                         },
-                        onClick = { playerConnection.player.toggleRepeatMode() },
+                        onClick = {
+                            playerConnection.player.toggleRepeatMode()
+                        },
                         isActive = repeatMode != Player.REPEAT_MODE_OFF,
+                        enabled = !isListenTogetherGuest,
                         shape = repeatShape,
                         modifier = Modifier.size(buttonSize),
                         textButtonColor = textButtonColor,
@@ -390,7 +409,7 @@ fun Queue(
                         ),
                 ) {
                     TextButton(
-                        onClick = { state.expandSoft() },
+                            onClick = { state.expandSoft() },
                         modifier = Modifier.weight(1f)
                     ) {
                         Row(
@@ -417,11 +436,14 @@ fun Queue(
                     }
 
                     TextButton(
+                        enabled = !isListenTogetherGuest,
                         onClick = {
-                            if (sleepTimerEnabled) {
-                                playerConnection.service.sleepTimer.clear()
-                            } else {
-                                showSleepTimerDialog = true
+                            if (!isListenTogetherGuest) {
+                                if (sleepTimerEnabled) {
+                                    playerConnection.service.sleepTimer.clear()
+                                } else {
+                                    showSleepTimerDialog = true
+                                }
                             }
                         },
                         modifier = Modifier.weight(1.2f)
@@ -466,7 +488,9 @@ fun Queue(
                     }
 
                     TextButton(
-                        onClick = { onToggleLyrics() },
+                        onClick = {
+                            onToggleLyrics()
+                        },
                         modifier = Modifier.weight(1f)
                     ) {
                         Row(
@@ -512,13 +536,19 @@ fun Queue(
                     onDismiss = { showSleepTimerDialog = false },
                     onConfirm = {
                         showSleepTimerDialog = false
-                        playerConnection.service.sleepTimer.start(sleepTimerValue.roundToInt())
+                        playerConnection.service.sleepTimer.start(
+                            minute = sleepTimerValue.roundToInt(),
+                            stopAfterCurrentSong = sleepTimerStopAfterCurrentSong,
+                            fadeOut = sleepTimerFadeOut,
+                        )
                     },
                     onCancel = {
                         showSleepTimerDialog = false
                     },
                     onReset = {
-                        sleepTimerValue = 30f // Default value
+                        sleepTimerValue = sleepTimerDefault
+                        sleepTimerStopAfterCurrentSong = sleepTimerStopAfterCurrentSongDefault
+                        sleepTimerFadeOut = sleepTimerFadeOutDefault
                     },
                     content = {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -543,14 +573,63 @@ fun Queue(
 
                             Spacer(Modifier.height(8.dp))
 
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Checkbox(
+                                    checked = sleepTimerStopAfterCurrentSong,
+                                    onCheckedChange = { sleepTimerStopAfterCurrentSong = it },
+                                )
+                                Text(stringResource(R.string.sleep_timer_stop_after_current_song))
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Checkbox(
+                                    checked = sleepTimerFadeOut,
+                                    onCheckedChange = { sleepTimerFadeOut = it },
+                                )
+                                Text(stringResource(R.string.sleep_timer_fade_out))
+                            }
+
+                            Spacer(Modifier.height(8.dp))
+
                             OutlinedButton(
                                 onClick = {
                                     showSleepTimerDialog = false
-                                    playerConnection.service.sleepTimer.start(-1)
+                                    playerConnection.service.sleepTimer.start(
+                                        minute = -1,
+                                        stopAfterCurrentSong = false,
+                                        fadeOut = sleepTimerFadeOut,
+                                    )
                                 }
                             ) {
                                 Text(stringResource(R.string.end_of_song))
                             }
+                            Spacer(Modifier.height(8.dp))
+
+                            TextButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        context.dataStore.edit { settings ->
+                                            settings[SleepTimerDefaultKey] = sleepTimerValue
+                                            settings[SleepTimerStopAfterCurrentSongKey] = sleepTimerStopAfterCurrentSong
+                                            settings[SleepTimerFadeOutKey] = sleepTimerFadeOut
+                                        }
+                                    }
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.sleep_timer_default_set, sleepTimerValue.roundToInt()),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                            ) {
+                                Text(stringResource(R.string.set_as_default))
+                            }
+
                         }
                     }
                 )
@@ -682,7 +761,7 @@ fun Queue(
                         var processedDismiss by remember { mutableStateOf(false) }
                         LaunchedEffect(dismissBoxState.currentValue) {
                             val dv = dismissBoxState.currentValue
-                            if (!processedDismiss && (
+                            if (!processedDismiss && !isListenTogetherGuest && (
                                     dv == SwipeToDismissBoxValue.StartToEnd ||
                                     dv == SwipeToDismissBoxValue.EndToStart
                                 )
@@ -738,14 +817,14 @@ fun Queue(
                                                 onCheckedChange = onCheckedChange
                                             )
                                         } else {
-                                            IconButton(
-                                                onClick = {
+                                            if (!isListenTogetherGuest) {
+                                                IconButton(
+                                                    onClick = {
                                                     menuState.show {
-                                                        PlayerMenu(
+                                                        QueueMenu(
                                                             mediaMetadata = window.mediaItem.metadata!!,
                                                             navController = navController,
                                                             playerBottomSheetState = playerBottomSheetState,
-                                                            isQueueTrigger = true,
                                                             onShowDetailsDialog = {
                                                                 window.mediaItem.mediaId.let {
                                                                     bottomSheetPageState.show {
@@ -756,14 +835,15 @@ fun Queue(
                                                             onDismiss = menuState::dismiss,
                                                         )
                                                     }
-                                                },
+                                                }
                                             ) {
                                                 Icon(
                                                     painter = painterResource(R.drawable.more_vert),
                                                     contentDescription = null,
                                                 )
                                             }
-                                            if (!locked) {
+                                        }
+                                            if (!locked && !isListenTogetherGuest) {
                                                 IconButton(
                                                     onClick = { },
                                                     modifier = Modifier.draggableHandle()
@@ -784,7 +864,7 @@ fun Queue(
                                             onClick = {
                                                 if (inSelectMode) {
                                                     onCheckedChange(window.mediaItem.mediaId !in selection)
-                                                } else {
+                                                } else if (!isListenTogetherGuest) {
                                                     if (index == currentWindowIndex) {
                                                         if (isCasting) {
                                                             if (castIsPlaying) {
@@ -860,31 +940,33 @@ fun Queue(
                             MediaMetadataListItem(
                                 mediaMetadata = item.metadata!!,
                                 trailingContent = {
-                                    IconButton(
-                                        onClick = {
-                                            playerConnection.service.playNextAutomix(
-                                                item,
-                                                index,
+                                    if (!isListenTogetherGuest) {
+                                        IconButton(
+                                            onClick = {
+                                                playerConnection.service.playNextAutomix(
+                                                    item,
+                                                    index,
+                                                )
+                                            },
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.playlist_play),
+                                                contentDescription = null,
                                             )
-                                        },
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.playlist_play),
-                                            contentDescription = null,
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            playerConnection.service.addToQueueAutomix(
-                                                item,
-                                                index,
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                playerConnection.service.addToQueueAutomix(
+                                                    item,
+                                                    index,
+                                                )
+                                            },
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.queue_music),
+                                                contentDescription = null,
                                             )
-                                        },
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.queue_music),
-                                            contentDescription = null,
-                                        )
+                                        }
                                     }
                                 },
                                 modifier =
@@ -894,11 +976,10 @@ fun Queue(
                                         onClick = {},
                                         onLongClick = {
                                             menuState.show {
-                                                PlayerMenu(
+                                                QueueMenu(
                                                     mediaMetadata = item.metadata!!,
                                                     navController = navController,
                                                     playerBottomSheetState = playerBottomSheetState,
-                                                    isQueueTrigger = true,
                                                     onShowDetailsDialog = {
                                                         item.mediaId.let {
                                                             bottomSheetPageState.show {
@@ -1090,6 +1171,7 @@ fun Queue(
                 .padding(12.dp),
         ) {
             IconButton(
+                enabled = !isListenTogetherGuest,
                 modifier = Modifier.align(Alignment.CenterStart),
                 onClick = {
                     coroutineScope
@@ -1103,10 +1185,12 @@ fun Queue(
                         }
                 },
             ) {
+                val baseAlpha = if (shuffleModeEnabled) 1f else 0.5f
+                val finalAlpha = if (!isListenTogetherGuest) baseAlpha else 0.3f
                 Icon(
                     painter = painterResource(R.drawable.shuffle),
                     contentDescription = null,
-                    modifier = Modifier.alpha(if (shuffleModeEnabled) 1f else 0.5f),
+                    modifier = Modifier.alpha(finalAlpha),
                 )
             }
 
@@ -1117,9 +1201,12 @@ fun Queue(
             )
 
             IconButton(
+                enabled = !isListenTogetherGuest,
                 modifier = Modifier.align(Alignment.CenterEnd),
                 onClick = playerConnection.player::toggleRepeatMode,
             ) {
+                val baseAlpha = if (repeatMode == Player.REPEAT_MODE_OFF) 0.5f else 1f
+                val finalAlpha = if (!isListenTogetherGuest) baseAlpha else 0.3f
                 Icon(
                     painter =
                     painterResource(
@@ -1130,7 +1217,7 @@ fun Queue(
                         },
                     ),
                     contentDescription = null,
-                    modifier = Modifier.alpha(if (repeatMode == Player.REPEAT_MODE_OFF) 0.5f else 1f),
+                    modifier = Modifier.alpha(finalAlpha),
                 )
             }
         }
@@ -1156,6 +1243,7 @@ private fun PlayerQueueButton(
     icon: Int,
     onClick: () -> Unit,
     isActive: Boolean,
+    enabled: Boolean = true,
     shape: RoundedCornerShape,
     modifier: Modifier = Modifier,
     text: String? = null,
@@ -1167,26 +1255,30 @@ private fun PlayerQueueButton(
 ) {
     val buttonModifier = Modifier
         .clip(shape)
-        .clickable(onClick = onClick)
+        .clickable(enabled = enabled, onClick = onClick)
+
+    val alphaFactor = if (enabled) 1f else 0.35f
+
+    val appliedModifier = if (isActive) {
+        modifier.then(buttonModifier.background(textButtonColor)).alpha(alphaFactor)
+    } else {
+        modifier.then(
+            buttonModifier.border(
+                width = 1.dp,
+                color = textButtonColor.copy(alpha = 0.3f),
+                shape = shape
+            )
+        ).alpha(alphaFactor)
+    }
 
     Box(
-        modifier = if (isActive) {
-            modifier.then(buttonModifier.background(textButtonColor))
-        } else {
-            modifier.then(
-                buttonModifier.border(
-                    width = 1.dp,
-                    color = textButtonColor.copy(alpha = 0.3f),
-                    shape = shape
-                )
-            )
-        },
+        modifier = appliedModifier,
         contentAlignment = Alignment.Center
     ) {
         if (text != null) {
             Text(
                 text = text,
-                color = iconButtonColor,
+                color = iconButtonColor.copy(alpha = if (enabled) 1f else 0.6f),
                 fontSize = 10.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1196,20 +1288,22 @@ private fun PlayerQueueButton(
                     .basicMarquee()
             )
         } else {
+            val baseTint = if (isActive) {
+                iconButtonColor
+            } else {
+                when (playerBackground) {
+                    PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT ->
+                        Color.White
+                    PlayerBackgroundStyle.DEFAULT ->
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                }
+            }
+            val finalTint = if (enabled) baseTint else baseTint.copy(alpha = 0.5f)
             Icon(
                 painter = painterResource(id = icon),
                 contentDescription = null,
                 modifier = Modifier.size(iconSize),
-                tint = if (isActive) {
-                    iconButtonColor
-                } else {
-                    when (playerBackground) {
-                        PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> 
-                            Color.White
-                        PlayerBackgroundStyle.DEFAULT -> 
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    }
-                }
+                tint = finalTint
             )
         }
     }

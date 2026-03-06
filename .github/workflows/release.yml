@@ -2,9 +2,9 @@ name: Bump to new version
 on:
   push:
     branches:
-      - 'main'
+      - "main"
     paths:
-      - 'app/build.gradle.kts'
+      - "app/build.gradle.kts"
   workflow_dispatch:
 
 jobs:
@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Check if version changed
         id: check_version
@@ -31,7 +32,7 @@ jobs:
 
           NEW_VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts || echo "")
           VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts || echo "")
-          
+
           if [ -z "$NEW_VERSION" ]; then
             echo "Could not find versionName in app/build.gradle.kts"
             echo "version_changed=false" >> $GITHUB_OUTPUT
@@ -74,17 +75,22 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        abi: [ 'arm64', 'armeabi', 'x86', 'x86_64', 'universal' ]
-        variant: [ 'foss', 'gms' ]
+        include:
+          - variant: foss
+            variantName: Foss
+          - variant: gms
+            variantName: Gms
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          java-version: "21"
+          distribution: "temurin"
 
       - name: Set Up Gradle
         uses: gradle/actions/setup-gradle@v5
@@ -92,13 +98,16 @@ jobs:
           cache-disabled: true
           cache-cleanup: on-success
 
+      - name: Setup and Generate Protobuf
+        uses: ./.github/actions/setup-protobuf
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build and Lint Release APK
-        run: ./gradlew --no-configuration-cache --console=plain clean assemble${{ matrix.abi }}${{ matrix.variant == 'foss' && 'Foss' || 'Gms' }}Release :app:lint${{ matrix.abi }}${{ matrix.variant == 'foss' && 'Foss' || 'Gms' }}Release --warning-mode summary
+        run: ./gradlew --no-configuration-cache --console=plain clean assemble${{ matrix.variantName }}Release :app:lint${{ matrix.variantName }}Release --warning-mode summary
         env:
-          PULL_REQUEST: 'false'
+          PULL_REQUEST: "false"
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
@@ -106,7 +115,7 @@ jobs:
       - name: Sign APK
         uses: ilharp/sign-android-release@v2.0.0
         with:
-          releaseDir: app/build/outputs/apk/${{ matrix.abi }}${{ matrix.variant == 'foss' && 'Foss' || 'Gms' }}/release/
+          releaseDir: app/build/outputs/apk/${{ matrix.variant }}/release/
           signingKey: ${{ secrets.KEYSTORE }}
           keyAlias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -115,44 +124,33 @@ jobs:
 
       - name: Move and rename signed APKs
         run: |
-          OUTPUT_DIR="app/build/outputs/apk/${{ matrix.abi }}${{ matrix.variant == 'foss' && 'Foss' || 'Gms' }}/release"
+          OUTPUT_DIR="app/build/outputs/apk/${{ matrix.variant }}/release"
           mkdir -p "$OUTPUT_DIR/out"
-          
+
           SIGNED_APK=$(find "$OUTPUT_DIR" -name "*-signed.apk" -o -name "*-unsigned-signed.apk" | head -1)
-          
+
           if [ -z "$SIGNED_APK" ]; then
-            echo "No signed APK found for ${{ matrix.abi }} ${{ matrix.variant }}"
+            echo "No signed APK found for ${{ matrix.variant }}"
             ls -la "$OUTPUT_DIR"
             exit 1
           fi
-          
-          # Name based on abi and variant
+
           if [ "${{ matrix.variant }}" = "gms" ]; then
-            # GMS builds get "with Google Cast" suffix
-            if [ "${{ matrix.abi }}" = "universal" ]; then
-              TARGET_NAME="Metrolist-with-Google-Cast.apk"
-            else
-              TARGET_NAME="app-${{ matrix.abi }}-with-Google-Cast.apk"
-            fi
+            TARGET_NAME="Metrolist-with-Google-Cast.apk"
           else
-            # FOSS builds keep original names
-            if [ "${{ matrix.abi }}" = "universal" ]; then
-              TARGET_NAME="Metrolist.apk"
-            else
-              TARGET_NAME="app-${{ matrix.abi }}-release.apk"
-            fi
+            TARGET_NAME="Metrolist.apk"
           fi
-          
+
           mv "$SIGNED_APK" "$OUTPUT_DIR/out/$TARGET_NAME"
-          
+
           echo "APK renamed to: $TARGET_NAME"
           ls -la "$OUTPUT_DIR/out/"
 
       - name: Upload Signed APKs
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.variant == 'gms' && (matrix.abi == 'universal' && 'Metrolist-with-Google-Cast' || format('app-{0}-with-Google-Cast', matrix.abi)) || (matrix.abi == 'universal' && 'Metrolist' || format('app-{0}-release', matrix.abi)) }}
-          path: app/build/outputs/apk/${{ matrix.abi }}${{ matrix.variant == 'foss' && 'Foss' || 'Gms' }}/release/out/*.apk
+          name: ${{ matrix.variant == 'gms' && 'Metrolist-with-Google-Cast' || 'Metrolist' }}
+          path: app/build/outputs/apk/${{ matrix.variant }}/release/out/*.apk
 
   create-release:
     needs: [check-version, build]
@@ -172,22 +170,22 @@ jobs:
         run: |
           echo "Organizing APK files..."
           mkdir -p release_files
-          
+
           find downloaded_artifacts -name "*.apk" -exec cp {} release_files/ \;
-          
+
           echo "APKs ready for release:"
           ls -la release_files/
 
       - name: Generate release notes
         run: |
           echo "Generating release notes..."
-          
+
           cat > release_notes.md << EOF
           Release of version ${{ needs.check-version.outputs.new_version }}
-          
+
           $(git log $(git describe --tags --abbrev=0 2>/dev/null || echo "HEAD~10")..HEAD --pretty=format:"- %s" --no-merges | head -10 || echo "- Initial release")
           EOF
-          
+
           echo "Release notes preview:"
           cat release_notes.md
 
@@ -196,13 +194,14 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           echo "Creating release v${{ needs.check-version.outputs.new_version }}"
-          
+
           gh release create "v${{ needs.check-version.outputs.new_version }}" \
             --title "${{ needs.check-version.outputs.new_version }}" \
             --notes-file release_notes.md \
             --latest \
+            --draft \
             release_files/*.apk
-            
+
           echo "Release created successfully!"
 
       - name: Update release summary
