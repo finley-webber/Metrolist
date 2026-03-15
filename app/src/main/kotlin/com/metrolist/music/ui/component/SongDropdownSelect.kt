@@ -37,7 +37,6 @@ import com.metrolist.music.db.entities.SongWithStats
 fun SongSelectDropdown(
     titleT: String,
     songs: List<SongWithStats>,
-    onSelectionChange: (List<SongWithStats>) -> Unit,
     selectedSong: MutableState<SongWithStats?>,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -89,7 +88,6 @@ fun SongSelectDropdown(
                     val scrollState = rememberScrollState()
                     DropdownMenuItem(
                         onClick = {
-                            onSelectionChange(listOf(song))
                             searchText = song.title
                             selectedSong.value = song
                             expanded = false

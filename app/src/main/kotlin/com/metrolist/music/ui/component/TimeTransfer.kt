@@ -57,7 +57,6 @@ fun TimeTransfer(
                 SongSelectDropdown(
                     titleT = stringResource(R.string.time_transfer_source_song),
                     songs = mostPlayedSongsStats,
-                    onSelectionChange = {},
                     selectedSong = sourceSong
                 )
 
@@ -79,7 +78,6 @@ fun TimeTransfer(
                 SongSelectDropdown(
                     titleT = stringResource(R.string.time_transfer_target_song),
                     songs = mostPlayedSongsStats,
-                    onSelectionChange = {},
                     selectedSong = targetSong,
                 )
 

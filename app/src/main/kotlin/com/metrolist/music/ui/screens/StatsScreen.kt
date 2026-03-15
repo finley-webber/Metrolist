@@ -692,7 +692,7 @@ fun StatsScreen(
                         androidx.compose.material3.IconButton(onClick = clearArtistSelection) {
                             Icon(
                                 painter = painterResource(R.drawable.close),
-                                contentDescription = null,
+                                contentDescription = "Clear Artists",
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -708,7 +708,7 @@ fun StatsScreen(
                 androidx.compose.material3.IconButton(onClick = onExitSelectionMode) {
                     Icon(
                         painter = painterResource(R.drawable.close),
-                        contentDescription = null,
+                        contentDescription = "Select Button",
                     )
                 }
             } else {
@@ -729,7 +729,7 @@ fun StatsScreen(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.arrow_back),
-                        contentDescription = null
+                        contentDescription = "Back Button"
                     )
                 }
             }
@@ -748,7 +748,7 @@ fun StatsScreen(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.more_vert),
-                        contentDescription = null
+                        contentDescription = "More Button"
                     )
                 }
             } else if (!isSearching) {
@@ -757,7 +757,7 @@ fun StatsScreen(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.search),
-                        contentDescription = null
+                        contentDescription = "Search Button"
                     )
                 }
                 IconButton(
@@ -766,7 +766,7 @@ fun StatsScreen(
                 ) {
                     Icon(
                         painterResource(R.drawable.sync),
-                        contentDescription = null,
+                        contentDescription = "Time Transfer",
                     )
                 }
             }
